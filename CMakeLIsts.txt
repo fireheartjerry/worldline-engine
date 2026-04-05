@@ -15,6 +15,7 @@ FetchContent_MakeAvailable(raylib)
 
 add_library(worldline_seed
     src/seed/CellularExpander.cpp
+    src/seed/MetaSpec.cpp
     src/seed/SeedMachine.cpp
     src/seed/Seeder.cpp
 )
@@ -32,3 +33,8 @@ add_executable(worldline_seed_tests tests/seed_verification.cpp)
 target_include_directories(worldline_seed_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(worldline_seed_tests PRIVATE worldline_seed)
 add_test(NAME seed_verification COMMAND worldline_seed_tests)
+
+add_executable(worldline_metaspec_tests tests/metaspec_verification.cpp)
+target_include_directories(worldline_metaspec_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_metaspec_tests PRIVATE worldline_seed)
+add_test(NAME metaspec_verification COMMAND worldline_metaspec_tests)
