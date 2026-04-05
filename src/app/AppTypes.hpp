@@ -77,6 +77,9 @@ enum class FieldId {
     FLOW_SHEAR_X,
     FLOW_SHEAR_Y,
     FLOW_SWIRL,
+    FLOW_GUST_X,
+    FLOW_GUST_Y,
+    FLOW_GUST_FREQUENCY,
     ANGLE1,
     ANGLE2,
     OMEGA1,
@@ -118,6 +121,9 @@ struct PendulumDraft {
     double flow_shear_x = 0.00;
     double flow_shear_y = 0.00;
     double flow_swirl = 0.00;
+    double flow_gust_x = 0.00;
+    double flow_gust_y = 0.00;
+    double flow_gust_frequency = 0.00;
     double theta1_deg = 128.0;
     double theta2_deg = 97.0;
     double omega1_deg = 0.0;
@@ -136,11 +142,8 @@ struct VisualDraft {
     bool show_net_vectors = false;
     bool show_link_drag_vectors = true;
     bool show_joint_torque_vectors = true;
-    bool show_flow_field = false;
     double velocity_vector_scale = 0.24;
     double force_vector_scale = 0.038;
-    double flow_vector_scale = 0.22;
-    double flow_density = 1.0;
     OverlayPreset preset = OverlayPreset::CUSTOM;
 };
 
@@ -160,10 +163,19 @@ inline std::array<bool, static_cast<std::size_t>(PanelSection::COUNT)> default_c
     std::array<bool, static_cast<std::size_t>(PanelSection::COUNT)> collapsed{};
     collapsed[static_cast<std::size_t>(PanelSection::LINK_DRAG)] = true;
     collapsed[static_cast<std::size_t>(PanelSection::JOINTS)] = true;
-    collapsed[static_cast<std::size_t>(PanelSection::FLOW)] = true;
     collapsed[static_cast<std::size_t>(PanelSection::VISUALS)] = true;
     collapsed[static_cast<std::size_t>(PanelSection::METRICS)] = true;
     return collapsed;
+}
+
+inline const PendulumDraft& default_pendulum_draft() {
+    static const PendulumDraft draft{};
+    return draft;
+}
+
+inline const VisualDraft& default_visual_draft() {
+    static const VisualDraft draft{};
+    return draft;
 }
 
 struct AppState {
@@ -203,13 +215,7 @@ struct AppState {
             {draft.connector2_axial_linear_drag, draft.connector2_axial_quadratic_drag},
             {draft.connector2_normal_linear_drag, draft.connector2_normal_quadratic_drag}
         };
-        params.flow_field = {
-            draft.flow_wind_x,
-            draft.flow_wind_y,
-            draft.flow_shear_x,
-            draft.flow_shear_y,
-            draft.flow_swirl
-        };
+        params.flow_field = {};
         params.connector_mode = draft.rigid_connectors
             ? ConnectorMode::RIGID
             : ConnectorMode::ROPE;

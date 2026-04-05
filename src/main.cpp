@@ -5,6 +5,10 @@
 #include "ui/SettingsModal.hpp"
 #include "ui/SimulationDock.hpp"
 
+#include "seed/SeedDebug.hpp"
+#include <iostream>
+#include <fstream>
+
 #include <algorithm>
 
 int main() {
@@ -12,6 +16,29 @@ int main() {
     InitWindow(1480, 920, "Worldline Double Pendulum Lab");
     SetTargetFPS(60);
     init_ui_font();
+
+    // --- SEED DEBUG BLOCK - remove when done ---
+    {
+        std::ofstream log("seed_debug.txt");
+        
+        // basic output
+        log << "=== OUTPUT: hello ===\n";
+        print_output(generate("hello"), log);
+        
+        // avalanche test
+        log << "\n=== AVALANCHE: hello vs hellp ===\n";
+        print_avalanche_report("hello", "hellp", log);
+        
+        // full trace
+        log << "\n=== FULL TRACE: hello ===\n";
+        const auto expanded = expand("hello");
+        const auto machine_trace = compress_with_trace(expanded);
+        print_register_state(machine_trace, log);
+        print_mutation_trace(machine_trace, log);
+        
+        log.close();
+    }
+    // --- END SEED DEBUG BLOCK ---
 
     Renderer renderer(GetScreenWidth(), GetScreenHeight());
     AppState app;

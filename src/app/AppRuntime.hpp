@@ -46,11 +46,6 @@ inline void clamp_draft(PendulumDraft& draft) {
     draft.elbow_viscous = std::clamp(draft.elbow_viscous, APP_MIN_JOINT_VISCOUS, APP_MAX_JOINT_VISCOUS);
     draft.elbow_quadratic = std::clamp(draft.elbow_quadratic, APP_MIN_JOINT_QUADRATIC, APP_MAX_JOINT_QUADRATIC);
     draft.elbow_coulomb = std::clamp(draft.elbow_coulomb, APP_MIN_JOINT_COULOMB, APP_MAX_JOINT_COULOMB);
-    draft.flow_wind_x = std::clamp(draft.flow_wind_x, APP_MIN_FLOW_WIND, APP_MAX_FLOW_WIND);
-    draft.flow_wind_y = std::clamp(draft.flow_wind_y, APP_MIN_FLOW_WIND, APP_MAX_FLOW_WIND);
-    draft.flow_shear_x = std::clamp(draft.flow_shear_x, APP_MIN_FLOW_SHEAR, APP_MAX_FLOW_SHEAR);
-    draft.flow_shear_y = std::clamp(draft.flow_shear_y, APP_MIN_FLOW_SHEAR, APP_MAX_FLOW_SHEAR);
-    draft.flow_swirl = std::clamp(draft.flow_swirl, APP_MIN_FLOW_SWIRL, APP_MAX_FLOW_SWIRL);
     draft.theta1_deg = std::clamp(wrap_degrees(draft.theta1_deg), APP_MIN_ANGLE_DEG, APP_MAX_ANGLE_DEG);
     draft.theta2_deg = std::clamp(wrap_degrees(draft.theta2_deg), APP_MIN_ANGLE_DEG, APP_MAX_ANGLE_DEG);
     draft.omega1_deg = std::clamp(draft.omega1_deg, APP_MIN_OMEGA_DEG, APP_MAX_OMEGA_DEG);
@@ -89,11 +84,6 @@ inline bool drafts_equal(const PendulumDraft& a, const PendulumDraft& b) {
         && close(a.elbow_viscous, b.elbow_viscous)
         && close(a.elbow_quadratic, b.elbow_quadratic)
         && close(a.elbow_coulomb, b.elbow_coulomb)
-        && close(a.flow_wind_x, b.flow_wind_x)
-        && close(a.flow_wind_y, b.flow_wind_y)
-        && close(a.flow_shear_x, b.flow_shear_x)
-        && close(a.flow_shear_y, b.flow_shear_y)
-        && close(a.flow_swirl, b.flow_swirl)
         && close(a.theta1_deg, b.theta1_deg)
         && close(a.theta2_deg, b.theta2_deg)
         && close(a.omega1_deg, b.omega1_deg)
@@ -125,11 +115,8 @@ inline VectorOverlayConfig make_vector_overlay_config(const VisualDraft& visuals
     config.show_net = visuals.show_net_vectors;
     config.show_link_drag = visuals.show_link_drag_vectors;
     config.show_joint_torque = visuals.show_joint_torque_vectors;
-    config.show_flow_field = visuals.show_flow_field;
     config.velocity_scale = visuals.velocity_vector_scale;
     config.force_scale = visuals.force_vector_scale;
-    config.flow_scale = visuals.flow_vector_scale;
-    config.flow_density = visuals.flow_density;
     return config;
 }
 
@@ -167,7 +154,6 @@ inline void apply_overlay_preset(VisualDraft& visuals, OverlayPreset preset) {
         visuals.show_net_vectors = false;
         visuals.show_link_drag_vectors = false;
         visuals.show_joint_torque_vectors = false;
-        visuals.show_flow_field = false;
         break;
     case OverlayPreset::FORCES:
         visuals.show_vectors = true;
@@ -178,7 +164,6 @@ inline void apply_overlay_preset(VisualDraft& visuals, OverlayPreset preset) {
         visuals.show_net_vectors = true;
         visuals.show_link_drag_vectors = false;
         visuals.show_joint_torque_vectors = false;
-        visuals.show_flow_field = false;
         break;
     case OverlayPreset::RESISTANCE:
         visuals.show_vectors = true;
@@ -189,7 +174,6 @@ inline void apply_overlay_preset(VisualDraft& visuals, OverlayPreset preset) {
         visuals.show_net_vectors = false;
         visuals.show_link_drag_vectors = true;
         visuals.show_joint_torque_vectors = true;
-        visuals.show_flow_field = true;
         break;
     case OverlayPreset::FULL:
         visuals.show_vectors = true;
@@ -200,7 +184,6 @@ inline void apply_overlay_preset(VisualDraft& visuals, OverlayPreset preset) {
         visuals.show_net_vectors = true;
         visuals.show_link_drag_vectors = true;
         visuals.show_joint_torque_vectors = true;
-        visuals.show_flow_field = true;
         break;
     case OverlayPreset::CUSTOM:
         break;
@@ -226,19 +209,15 @@ inline CanvasOverlayView make_canvas_overlay_view(
     CanvasOverlayView view;
     view.show_vectors = app.visuals.show_vectors;
     view.rigid_mode = app.simulation.rigid_connectors();
-    view.ambient_flow_enabled = app.simulation.ambient_flow_enabled();
     view.mode_label = connector_mode_label(active_draft);
     view.preset_label = overlay_preset_short_label(app.visuals.preset);
     if (diagnostics != nullptr) {
         view.diagnostics = *diagnostics;
     }
-    view.flow_field = app.simulation.params.flow_field;
     view.dissipation_power = dissipation_power;
     if (app.visuals.show_vectors) {
         view.hint =
-            view.ambient_flow_enabled
-                ? "Overlay is live. Streamlines show the fluid field, while labels and the inspector report wind-relative drag and torque."
-                : "Overlay is live. Use the inspector, legend, and stage labels to track motion, load paths, and joint torques.";
+            "Overlay is live. Use the inspector, legend, and stage labels to track motion, load paths, and joint torques.";
     } else {
         view.hint =
             app.draft.rigid_connectors
@@ -255,6 +234,38 @@ inline std::string format_number(double value, int precision) {
 }
 
 inline Color joint_torque_accent() { return {255, 116, 145, 255}; }
+
+inline double default_field_value(const FieldSpec& spec) {
+    return default_pendulum_draft().*(spec.member);
+}
+
+inline double default_visual_field_value(const VisualFieldSpec& spec) {
+    return default_visual_draft().*(spec.member);
+}
+
+inline bool field_matches_default(const AppState& app, const FieldSpec& spec) {
+    return std::abs((app.draft.*(spec.member)) - default_field_value(spec)) < 1e-9;
+}
+
+inline bool visual_field_matches_default(const AppState& app, const VisualFieldSpec& spec) {
+    return std::abs((app.visuals.*(spec.member)) - default_visual_field_value(spec)) < 1e-9;
+}
+
+inline void reset_field_to_default(AppState& app, const FieldSpec& spec) {
+    app.ui.active_field = FieldId::NONE;
+    app.ui.buffer.clear();
+    app.ui.active_slider = FieldId::NONE;
+    app.draft.*(spec.member) = default_field_value(spec);
+    clamp_draft(app.draft);
+    sync_preview(app);
+}
+
+inline void reset_visual_field_to_default(AppState& app, const VisualFieldSpec& spec) {
+    app.ui.active_field = FieldId::NONE;
+    app.ui.buffer.clear();
+    app.ui.active_slider = FieldId::NONE;
+    app.visuals.*(spec.member) = default_visual_field_value(spec);
+}
 
 inline void activate_field(AppState& app, FieldId id) {
     if (const VisualFieldSpec* spec = find_visual_field_spec(id)) {
@@ -540,3 +551,4 @@ inline int step_live_simulation(AppState& app, float frame_time) {
     }
     return new_samples;
 }
+

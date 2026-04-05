@@ -398,13 +398,17 @@ private:
 
         const Vec2 delta_position = end_position - start_position;
         const Vec2 delta_velocity = end_velocity - start_velocity;
+        const double segment_length = delta_position.length();
+        if (segment_length <= 1e-9) {
+            return resultant;
+        }
         integrate_unit_interval_gauss5([&](double s_unit, double weight) {
             const Vec2 position = start_position + delta_position * s_unit;
             const Vec2 velocity = start_velocity + delta_velocity * s_unit;
             resultant += anisotropic_drag_force(
                 velocity - flow_velocity_at(position, flow_field),
                 axis_hint,
-                drag) * weight;
+                drag) * (weight * segment_length);
         });
         return resultant;
     }
@@ -423,6 +427,10 @@ private:
 
         const Vec2 delta_position = end_position - start_position;
         const Vec2 delta_velocity = end_velocity - start_velocity;
+        const double segment_length = delta_position.length();
+        if (segment_length <= 1e-9) {
+            return forces;
+        }
         integrate_unit_interval_gauss5([&](double s_unit, double weight) {
             const Vec2 position = start_position + delta_position * s_unit;
             const Vec2 velocity = start_velocity + delta_velocity * s_unit;
@@ -431,8 +439,9 @@ private:
                     velocity - flow_velocity_at(position, flow_field),
                     axis_hint,
                     drag);
-            forces.first += density_force * (weight * (1.0 - s_unit));
-            forces.second += density_force * (weight * s_unit);
+            const double line_weight = weight * segment_length;
+            forces.first += density_force * (line_weight * (1.0 - s_unit));
+            forces.second += density_force * (line_weight * s_unit);
         });
         return forces;
     }

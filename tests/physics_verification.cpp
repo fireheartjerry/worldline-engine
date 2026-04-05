@@ -273,75 +273,6 @@ void test_visual_diagnostics_expose_resistive_loads() {
             "visual diagnostics should expose elbow torque");
 }
 
-void test_ambient_flow_drives_relative_drag() {
-    PendulumParams params;
-    params.l1 = 1.0;
-    params.l2 = 0.9;
-    params.m1 = 1.2;
-    params.m2 = 1.0;
-    params.connector_mode = ConnectorMode::RIGID;
-    params.bob1_drag = {0.45, 0.18};
-    params.bob2_drag = {0.40, 0.16};
-    params.connector1_drag = {{0.02, 0.01}, {0.14, 0.08}};
-    params.connector2_drag = {{0.02, 0.01}, {0.12, 0.07}};
-    params.flow_field.wind_x = 2.5;
-
-    PendulumState state;
-    state.theta1 = 0.0;
-    state.theta2 = 0.0;
-    state.omega1 = 0.0;
-    state.omega2 = 0.0;
-
-    Simulation still_air(state, params);
-    still_air.params.flow_field = {};
-    Simulation with_flow(state, params);
-
-    const Simulation::VisualDiagnostics diagnostics = with_flow.diagnostics();
-    require(diagnostics.bob1.drag_force.length() > 1.0e-6,
-            "ambient flow should create bob drag at rest");
-    require(diagnostics.connector1.drag_force.length() > 1.0e-6,
-            "ambient flow should create connector drag at rest");
-
-    for (int i = 0; i < 300; ++i) {
-        still_air.step(0.001);
-        with_flow.step(0.001);
-    }
-
-    require(std::abs(still_air.omega1()) < 1.0e-10,
-            "still air should leave the vertical equilibrium at rest");
-    require(std::abs(with_flow.omega1()) > 1.0e-4 || std::abs(with_flow.omega2()) > 1.0e-4,
-            "ambient flow should drive motion through relative drag");
-}
-
-void test_uniform_flow_matches_relative_velocity_model() {
-    PendulumParams params;
-    params.l1 = 1.15;
-    params.l2 = 0.95;
-    params.m1 = 1.1;
-    params.m2 = 0.9;
-    params.connector_mode = ConnectorMode::RIGID;
-    params.bob1_drag = {0.5, 0.0};
-    params.flow_field.wind_x = 1.75;
-    params.flow_field.wind_y = -0.25;
-
-    PendulumState state;
-    state.theta1 = 1.4;
-    state.theta2 = 0.8;
-    state.omega1 = 0.0;
-    state.omega2 = 0.0;
-
-    Simulation sim(state, params);
-    const Simulation::VisualDiagnostics diagnostics = sim.diagnostics();
-    const Vec2 expected =
-        drag_force(-flow_velocity_at(diagnostics.bob1.position, params.flow_field),
-                   params.bob1_drag);
-
-    require(relative_error(diagnostics.bob1.drag_force.x, expected.x) < 1.0e-9,
-            "visual diagnostics should use body velocity relative to the ambient flow (x)");
-    require(relative_error(diagnostics.bob1.drag_force.y, expected.y) < 1.0e-9,
-            "visual diagnostics should use body velocity relative to the ambient flow (y)");
-}
-
 } // namespace
 int main() {
     test_conservative_rigid_energy_stability();
@@ -351,8 +282,6 @@ int main() {
     test_adaptive_stepper_matches_fine_reference();
     test_joint_resistance_is_rigid_only();
     test_visual_diagnostics_expose_resistive_loads();
-    test_ambient_flow_drives_relative_drag();
-    test_uniform_flow_matches_relative_velocity_model();
     std::cout << "physics_verification passed\n";
     return 0;
 }

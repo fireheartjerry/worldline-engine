@@ -27,12 +27,6 @@ inline constexpr double APP_MIN_ANGLE_DEG = -179.5;
 inline constexpr double APP_MAX_ANGLE_DEG = 179.5;
 inline constexpr double APP_MIN_OMEGA_DEG = -720.0;
 inline constexpr double APP_MAX_OMEGA_DEG = 720.0;
-inline constexpr double APP_MIN_FLOW_WIND = -6.0;
-inline constexpr double APP_MAX_FLOW_WIND = 6.0;
-inline constexpr double APP_MIN_FLOW_SHEAR = -4.0;
-inline constexpr double APP_MAX_FLOW_SHEAR = 4.0;
-inline constexpr double APP_MIN_FLOW_SWIRL = -8.0;
-inline constexpr double APP_MAX_FLOW_SWIRL = 8.0;
 inline constexpr double APP_PHYS_DT = 0.001;
 inline constexpr int APP_MAX_STEPS_PER_FRAME = 42;
 
@@ -75,13 +69,7 @@ inline const std::array<FieldSpec, 6> JOINT_RESISTANCE_FIELDS{{
     {FieldId::ELBOW_COULOMB, "Elbow Coulomb", &PendulumDraft::elbow_coulomb, APP_MIN_JOINT_COULOMB, APP_MAX_JOINT_COULOMB, 2, "Nm"},
 }};
 
-inline const std::array<FieldSpec, 5> FLOW_FIELDS{{
-    {FieldId::FLOW_WIND_X, "Wind X", &PendulumDraft::flow_wind_x, APP_MIN_FLOW_WIND, APP_MAX_FLOW_WIND, 2, "m/s"},
-    {FieldId::FLOW_WIND_Y, "Wind Y", &PendulumDraft::flow_wind_y, APP_MIN_FLOW_WIND, APP_MAX_FLOW_WIND, 2, "m/s"},
-    {FieldId::FLOW_SHEAR_X, "Shear X", &PendulumDraft::flow_shear_x, APP_MIN_FLOW_SHEAR, APP_MAX_FLOW_SHEAR, 2, "1/s"},
-    {FieldId::FLOW_SHEAR_Y, "Shear Y", &PendulumDraft::flow_shear_y, APP_MIN_FLOW_SHEAR, APP_MAX_FLOW_SHEAR, 2, "1/s"},
-    {FieldId::FLOW_SWIRL, "Swirl", &PendulumDraft::flow_swirl, APP_MIN_FLOW_SWIRL, APP_MAX_FLOW_SWIRL, 2, "rad/s"},
-}};
+inline const std::array<FieldSpec, 0> FLOW_FIELDS{{}};
 
 inline const std::array<FieldSpec, 4> LAUNCH_FIELDS{{
     {FieldId::ANGLE1, "Upper Angle", &PendulumDraft::theta1_deg, APP_MIN_ANGLE_DEG, APP_MAX_ANGLE_DEG, 1, "deg"},
@@ -90,12 +78,10 @@ inline const std::array<FieldSpec, 4> LAUNCH_FIELDS{{
     {FieldId::OMEGA2, "Lower Spin", &PendulumDraft::omega2_deg, APP_MIN_OMEGA_DEG, APP_MAX_OMEGA_DEG, 1, "deg/s"},
 }};
 
-inline const std::array<VisualFieldSpec, 5> VISUAL_FIELDS{{
+inline const std::array<VisualFieldSpec, 3> VISUAL_FIELDS{{
     {FieldId::TRAIL_MEMORY, "Trail Persistence", &VisualDraft::trail_memory, 0.0, 1.0, 2, "0-1"},
     {FieldId::VELOCITY_VECTOR_SCALE, "Velocity Scale", &VisualDraft::velocity_vector_scale, APP_MIN_VELOCITY_VECTOR_SCALE, APP_MAX_VELOCITY_VECTOR_SCALE, 2, "x"},
     {FieldId::FORCE_VECTOR_SCALE, "Force Scale", &VisualDraft::force_vector_scale, APP_MIN_FORCE_VECTOR_SCALE, APP_MAX_FORCE_VECTOR_SCALE, 3, "x"},
-    {FieldId::FLOW_VECTOR_SCALE, "Flow Scale", &VisualDraft::flow_vector_scale, 0.04, 1.20, 2, "x"},
-    {FieldId::FLOW_DENSITY, "Flow Density", &VisualDraft::flow_density, 0.50, 2.00, 2, "x"},
 }};
 
 inline const FieldSpec* find_field_spec(FieldId id) {

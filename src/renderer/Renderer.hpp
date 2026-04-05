@@ -165,8 +165,7 @@ public:
         draw_bobs(layout.pivot, b1, b2, r1, r2, simulation.omega2());
         draw_vector_legend(layout,
                            overlay,
-                           simulation.rigid_connectors(),
-                           simulation.ambient_flow_enabled());
+                           simulation.rigid_connectors());
 
         EndScissorMode();
 

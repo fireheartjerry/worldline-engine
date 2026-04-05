@@ -27,6 +27,9 @@ struct FlowFieldParams {
     double shear_x = 0.0;  // x-flow gradient with vertical position: u_x += shear_x * y
     double shear_y = 0.0;  // y-flow gradient with horizontal position: u_y += shear_y * x
     double swirl = 0.0;    // rigid-body swirl rate about the pivot: u += swirl * (-y, x)
+    double gust_x = 0.0;   // uniform oscillatory x-gust amplitude (m/s)
+    double gust_y = 0.0;   // uniform oscillatory y-gust amplitude (m/s)
+    double gust_frequency = 0.0; // gust frequency (Hz)
 };
 
 struct PendulumParams {

@@ -13,10 +13,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(raylib)
 
+add_library(worldline_seed
+    src/seed/CellularExpander.cpp
+    src/seed/SeedMachine.cpp
+    src/seed/Seeder.cpp
+)
+target_include_directories(worldline_seed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_executable(worldline src/main.cpp)
 target_include_directories(worldline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(worldline raylib)
+target_link_libraries(worldline raylib worldline_seed)
 
 add_executable(worldline_physics_tests tests/physics_verification.cpp)
 target_include_directories(worldline_physics_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 add_test(NAME physics_verification COMMAND worldline_physics_tests)
+
+add_executable(worldline_seed_tests tests/seed_verification.cpp)
+target_include_directories(worldline_seed_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_seed_tests PRIVATE worldline_seed)
+add_test(NAME seed_verification COMMAND worldline_seed_tests)

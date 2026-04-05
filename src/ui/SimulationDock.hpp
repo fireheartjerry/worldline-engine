@@ -5,90 +5,134 @@
 
 struct SimulationDockResult {
     PanelCommand command = PanelCommand::NONE;
-    bool open_settings = false;
+    bool open_settings   = false;
 };
 
+// ── Run mode helpers ──────────────────────────────────────────────────────────
 inline const char* run_mode_label(RunMode mode) {
     switch (mode) {
     case RunMode::RUNNING: return "LIVE";
-    case RunMode::PAUSED: return "PAUSED";
+    case RunMode::PAUSED:  return "HOLD";
     case RunMode::STOPPED: return "EDIT";
     }
     return "EDIT";
 }
 
-inline Color run_mode_fill(RunMode mode) {
+inline Color run_mode_badge_fill(RunMode mode) {
     switch (mode) {
-    case RunMode::RUNNING: return {16, 82, 70, 220};
-    case RunMode::PAUSED: return {92, 78, 20, 220};
-    case RunMode::STOPPED: return {17, 68, 98, 220};
+    case RunMode::RUNNING: return with_alpha(WL::PLASMA_DIM,  210);
+    case RunMode::PAUSED:  return with_alpha(WL::XENON_DIM,   210);
+    case RunMode::STOPPED: return { 18, 46, 76, 210};
     }
-    return {17, 68, 98, 220};
+    return { 18, 46, 76, 210};
 }
 
+inline Color run_mode_badge_text(RunMode mode) {
+    switch (mode) {
+    case RunMode::RUNNING: return WL::PLASMA_GREEN;
+    case RunMode::PAUSED:  return WL::XENON_CORE;
+    case RunMode::STOPPED: return WL::ACCENT_GRAVITY;
+    }
+    return WL::TEXT_SECONDARY;
+}
+
+// ── Simulation dock ───────────────────────────────────────────────────────────
 inline SimulationDockResult draw_simulation_dock(const AppState& app,
                                                  Rectangle viewport) {
     SimulationDockResult result;
+
     const CanvasOverlayRects hud =
-        make_canvas_overlay_layout(viewport, app.visuals.show_vectors, app.simulation.rigid_connectors());
+        make_canvas_overlay_layout(viewport,
+                                   app.visuals.show_vectors,
+                                   app.simulation.rigid_connectors());
     const Rectangle dock = hud.sim_dock;
-    const float scale = hud.hud_scale;
-    const float gap = 8.0f * scale;
-    const float inner_x = dock.x + 14.0f * scale;
-    const float inner_w = dock.width - 28.0f * scale;
+    const float s    = hud.hud_scale;
+    const float gap  = 7.0f * s;
+    const float ix   = dock.x + 13.0f * s;   // inner left x
+    const float iw   = dock.width - 26.0f * s; // inner width
 
-    draw_card(dock, {7, 16, 24, 194}, {55, 96, 115, 110});
-    draw_text("Simulation", {inner_x, dock.y + 12.0f * scale}, 19.0f * scale, {237, 244, 248, 255});
+    // ── Card ─────────────────────────────────────────────────────────────────
+    draw_card(dock, WL::GLASS_1, with_alpha(WL::CYAN_DIM, 95));
 
-    draw_badge({inner_x, dock.y + 40.0f * scale, 80.0f * scale, 24.0f * scale},
+    // Top accent line
+    DrawLineEx({dock.x + 4, dock.y + 1}, {dock.x + dock.width - 4, dock.y + 1},
+               1.5f, with_alpha(WL::CYAN_CORE, 60));
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    draw_text("SIMULATION",
+              {ix, dock.y + 11.0f * s},
+              12.0f * s,
+              with_alpha(WL::CYAN_CORE, 180));
+
+    // ── Status badges ─────────────────────────────────────────────────────────
+    draw_badge({ix, dock.y + 30.0f * s, 74.0f * s, 22.0f * s},
                run_mode_label(app.mode),
-               run_mode_fill(app.mode),
-               {236, 244, 246, 255},
-               scale);
-    draw_badge({dock.x + dock.width - 132.0f * scale, dock.y + 40.0f * scale, 118.0f * scale, 24.0f * scale},
+               run_mode_badge_fill(app.mode),
+               run_mode_badge_text(app.mode),
+               s);
+    draw_badge({dock.x + dock.width - 126.0f * s, dock.y + 30.0f * s, 112.0f * s, 22.0f * s},
                connector_mode_label(app.mode == RunMode::STOPPED ? app.draft : app.applied),
-               {34, 51, 67, 210},
-               {223, 235, 243, 255},
-               scale);
+               { 22, 42, 62, 200},
+               WL::TEXT_SECONDARY,
+               s);
 
-    const float button_w = (inner_w - gap) * 0.5f;
-    const float row1_y = dock.y + 74.0f * scale;
-    const float row2_y = row1_y + 38.0f * scale;
-    const float tune_y = row2_y + 40.0f * scale;
+    // ── Separator ─────────────────────────────────────────────────────────────
+    DrawLineEx({ix, dock.y + 60.0f * s}, {ix + iw, dock.y + 60.0f * s},
+               1.0f, with_alpha(WL::GLASS_BORDER, 100));
 
-    if (draw_button({inner_x, row1_y, button_w, 32.0f * scale},
+    // ── Control buttons ───────────────────────────────────────────────────────
+    const float bw   = (iw - gap) * 0.5f;
+    const float row1 = dock.y + 68.0f * s;
+    const float row2 = row1 + 34.0f * s + gap;
+    const float row3 = row2 + 34.0f * s + gap * 0.6f;
+
+    // Launch / Restart — primary green
+    if (draw_button({ix, row1, bw, 32.0f * s},
                     app.mode == RunMode::STOPPED ? "Launch" : "Restart",
-                    {16, 88, 92, 235}, {24, 118, 122, 255}, {228, 249, 248, 255},
-                    true,
-                    scale)) {
+                    with_alpha(WL::PLASMA_DIM,  230),
+                    with_alpha(WL::PLASMA_GREEN, 80),
+                    WL::PLASMA_GREEN,
+                    true, s)) {
         result.command = PanelCommand::LAUNCH;
     }
-    if (draw_button({inner_x + button_w + gap, row1_y, button_w, 32.0f * scale},
+
+    // Pause / Resume — neutral blue
+    if (draw_button({ix + bw + gap, row1, bw, 32.0f * s},
                     app.mode == RunMode::PAUSED ? "Resume" : "Pause",
-                    {33, 50, 72, 235}, {46, 67, 94, 255}, {228, 235, 246, 255},
-                    app.mode != RunMode::STOPPED,
-                    scale)) {
+                    { 26, 48, 74, 232},
+                    { 36, 64, 96, 255},
+                    WL::TEXT_PRIMARY,
+                    app.mode != RunMode::STOPPED, s)) {
         result.command = PanelCommand::TOGGLE_PAUSE;
     }
-    if (draw_button({inner_x, row2_y, button_w, 32.0f * scale},
+
+    // Stop — xenon red
+    if (draw_button({ix, row2, bw, 32.0f * s},
                     "Stop",
-                    {92, 38, 28, 230}, {118, 49, 36, 255}, {255, 233, 225, 255},
-                    app.mode != RunMode::STOPPED,
-                    scale)) {
+                    with_alpha(WL::XENON_DIM,  224),
+                    with_alpha(WL::XENON_CORE,  80),
+                    WL::XENON_CORE,
+                    app.mode != RunMode::STOPPED, s)) {
         result.command = PanelCommand::STOP;
     }
-    if (draw_button({inner_x + button_w + gap, row2_y, button_w, 32.0f * scale},
+
+    // Clear Trail — dim
+    if (draw_button({ix + bw + gap, row2, bw, 32.0f * s},
                     "Clear Trail",
-                    {19, 37, 53, 230}, {28, 55, 76, 255}, {228, 235, 246, 255},
-                    true,
-                    scale)) {
+                    { 14, 30, 50, 228},
+                    { 22, 48, 76, 255},
+                    WL::TEXT_SECONDARY,
+                    true, s)) {
         result.command = PanelCommand::CLEAR_TRAIL;
     }
-    if (draw_button({inner_x, tune_y, inner_w, 34.0f * scale},
+
+    // ── Open Tuning Studio — violet CTA ──────────────────────────────────────
+    if (draw_button({ix, row3, iw, 32.0f * s},
                     "Open Tuning Studio",
-                    {58, 45, 92, 226}, {76, 58, 118, 255}, {239, 233, 250, 255},
-                    true,
-                    scale)) {
+                    with_alpha(WL::VIOLET_DIM,  220),
+                    with_alpha(WL::VIOLET_CORE,  80),
+                    WL::VIOLET_CORE,
+                    true, s)) {
         result.open_settings = true;
     }
 

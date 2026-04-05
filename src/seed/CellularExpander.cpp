@@ -10,8 +10,7 @@ namespace {
 using ByteArray = std::array<std::uint8_t, SEED_EXPANDED_SIZE>;
 
 constexpr std::size_t kCellMask = SEED_EXPANDED_SIZE - 1;
-constexpr std::size_t kHistoryGenerations = 32;
-constexpr std::size_t kSamplesPerGeneration = 16;
+constexpr std::size_t kMixingGenerations = 128;
 constexpr double kUniformLambda = 0.2;
 constexpr double kGoldenRatio = 1.6180339887498948482;
 constexpr double kEulerE = 2.7182818284590452354;
@@ -22,8 +21,6 @@ constexpr double kSqrt5 = 2.2360679774997896964;
 
 static_assert((SEED_EXPANDED_SIZE & kCellMask) == 0,
               "Expanded seed size must stay a power of two");
-static_assert(kHistoryGenerations * kSamplesPerGeneration == SEED_EXPANDED_SIZE,
-              "Generation harvest must cover the full expanded tape");
 
 constexpr std::array<std::array<double, 4>, 5> kSimplexVertices{{
     {{ 1.0,  1.0,  1.0, -1.0 / kSqrt5 }},
@@ -63,15 +60,6 @@ void fold_input(const std::string& input,
         current[current_slot] = absorb_fold(current[current_slot], value, i, 0x3Du);
         previous[previous_slot] = absorb_fold(previous[previous_slot], value, i, 0xA7u);
     }
-}
-
-CAGenerationPreview preview_generation(std::size_t generation,
-                                       const ByteArray& state) {
-    CAGenerationPreview preview;
-    preview.generation = generation;
-    std::copy_n(state.begin(), 8, preview.first8.begin());
-    std::copy_n(state.end() - 8, 8, preview.last8.begin());
-    return preview;
 }
 
 std::array<double, 5> normalize_barycentric(const std::array<std::uint8_t, 5>& cells) {
@@ -174,35 +162,23 @@ ByteArray step_ca(const ByteArray& current,
     return next;
 }
 
-void harvest_generation(std::vector<std::uint8_t>& expanded,
-                        const ByteArray& state,
-                        std::size_t generation) {
-    for (std::size_t sample = 0; sample < kSamplesPerGeneration; ++sample) {
-        const std::size_t position = (17u * generation + 32u * sample) & kCellMask;
-        expanded.push_back(state[position]);
-    }
-}
-
 } // namespace
 
 CellularExpansionTrace expand_with_trace(const std::string& input) {
     CellularExpansionTrace trace;
     trace.expanded.reserve(SEED_EXPANDED_SIZE);
-    trace.generations.reserve(kHistoryGenerations + 1u);
 
     ByteArray current{};
     ByteArray previous{};
     fold_input(input, current, previous);
-    trace.generations.push_back(preview_generation(0u, current));
 
-    for (std::size_t generation = 0; generation < kHistoryGenerations; ++generation) {
+    for (std::size_t generation = 0; generation < kMixingGenerations; ++generation) {
         const ByteArray next = step_ca(current, previous);
-        trace.generations.push_back(preview_generation(generation + 1u, next));
-        harvest_generation(trace.expanded, next, generation);
         previous = current;
         current = next;
     }
 
+    trace.expanded.assign(current.begin(), current.end());
     return trace;
 }
 

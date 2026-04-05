@@ -71,8 +71,9 @@ inline GeneralizedForces rigid_resistive_forces(const PendulumState& s,
                         sample.velocity - flow_velocity_at(sample.position, p.flow_field),
                         sample.axis,
                         drag);
-                forces.q1 += weight * drag_density.dot(sample.j1);
-                forces.q2 += weight * drag_density.dot(sample.j2);
+                const double line_weight = weight * length;
+                forces.q1 += line_weight * drag_density.dot(sample.j1);
+                forces.q2 += line_weight * drag_density.dot(sample.j2);
             });
         };
 

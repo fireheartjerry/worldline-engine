@@ -72,21 +72,6 @@ inline void print_mutation_trace(const SeedMachineTrace& trace, std::ostream& os
     }
 }
 
-inline void print_ca_expansion(const CellularExpansionTrace& trace, std::ostream& os) {
-    os << std::hex << std::setfill('0');
-    for (const CAGenerationPreview& preview : trace.generations) {
-        os << "generation " << std::dec << preview.generation << " first8=";
-        for (std::uint8_t value : preview.first8) {
-            os << std::hex << std::setw(2) << static_cast<int>(value);
-        }
-        os << " last8=";
-        for (std::uint8_t value : preview.last8) {
-            os << std::hex << std::setw(2) << static_cast<int>(value);
-        }
-        os << std::dec << '\n';
-    }
-}
-
 inline std::uint32_t popcount32(std::uint32_t value) {
     std::uint32_t count = 0;
     while (value != 0) {

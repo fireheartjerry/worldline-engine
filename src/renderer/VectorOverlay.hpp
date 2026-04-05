@@ -1,7 +1,6 @@
 #pragma once
 #include "raylib.h"
 #include "SceneLayout.hpp"
-#include "../physics/FlowField.hpp"
 #include "../physics/Simulation.hpp"
 #include "../ui/CanvasOverlayLayout.hpp"
 #include "../ui/UiPrimitives.hpp"
@@ -17,11 +16,8 @@ struct VectorOverlayConfig {
     bool show_net = false;
     bool show_link_drag = true;
     bool show_joint_torque = true;
-    bool show_flow_field = false;
     double velocity_scale = 0.24;
     double force_scale = 0.038;
-    double flow_scale = 0.22;
-    double flow_density = 1.0;
 };
 
 namespace vector_overlay_detail {
@@ -33,8 +29,6 @@ inline Color reaction_color() { return {140, 247, 182, 255}; }
 inline Color net_color() { return {255, 110, 191, 255}; }
 inline Color link_drag_color() { return {255, 214, 120, 255}; }
 inline Color joint_torque_color() { return {255, 116, 145, 255}; }
-inline Color flow_field_color() { return {112, 224, 255, 255}; }
-
 inline Vector2 add(Vector2 a, Vector2 b) {
     return {a.x + b.x, a.y + b.y};
 }
@@ -272,99 +266,6 @@ inline void draw_body_vector(Vector2 origin,
     draw_label_chip(label_anchor, label, color, layout);
 }
 
-inline void draw_flow_field(const Simulation& simulation,
-                            const PendulumLayout& layout,
-                            const VectorOverlayConfig& overlay) {
-    if (!overlay.show_flow_field || !simulation.ambient_flow_enabled()) {
-        return;
-    }
-
-    const float hud_scale = canvas_overlay_scale(layout.viewport);
-    const float density = std::clamp(static_cast<float>(overlay.flow_density), 0.5f, 2.0f);
-    const float aspect = layout.stage_rect.width / std::max(layout.stage_rect.height, 1.0f);
-    const int rows = std::clamp(static_cast<int>(std::round(5.0f * density)), 4, 10);
-    const int cols = std::clamp(static_cast<int>(std::round(rows * aspect * 1.15f)), 5, 14);
-    const float margin = 28.0f * hud_scale;
-    const double streamline_step = simulation.reach() * 0.07;
-    const int streamline_segments = 5;
-
-    auto in_bounds = [&](Vector2 point) {
-        return point.x >= layout.stage_rect.x + 2.0f
-            && point.x <= layout.stage_rect.x + layout.stage_rect.width - 2.0f
-            && point.y >= layout.stage_rect.y + 2.0f
-            && point.y <= layout.stage_rect.y + layout.stage_rect.height - 2.0f;
-    };
-
-    for (int row = 0; row < rows; ++row) {
-        const float row_t = (rows == 1)
-            ? 0.5f
-            : static_cast<float>(row) / static_cast<float>(rows - 1);
-        for (int col = 0; col < cols; ++col) {
-            const float col_t = (cols == 1)
-                ? 0.5f
-                : static_cast<float>(col) / static_cast<float>(cols - 1);
-            const Vector2 seed_screen = {
-                layout.stage_rect.x + margin + (layout.stage_rect.width - margin * 2.0f) * col_t,
-                layout.stage_rect.y + margin + (layout.stage_rect.height - margin * 2.0f) * row_t
-            };
-            Vec2 seed_world = {
-                (seed_screen.x - layout.pivot.x) / layout.scale,
-                (seed_screen.y - layout.pivot.y) / layout.scale
-            };
-            const Vec2 seed_flow = simulation.flow_velocity(seed_world);
-            const double speed = seed_flow.length();
-            if (speed < 1e-4) {
-                continue;
-            }
-
-            const unsigned char alpha = static_cast<unsigned char>(
-                std::clamp(46.0 + speed * 32.0, 46.0, 120.0));
-            Color trail = flow_field_color();
-            trail.a = alpha;
-
-            Vec2 world_cursor = seed_world;
-            Vector2 previous = seed_screen;
-            Vector2 last = seed_screen;
-            for (int segment = 0; segment < streamline_segments; ++segment) {
-                Vec2 velocity = simulation.flow_velocity(world_cursor);
-                const double local_speed = velocity.length();
-                if (local_speed < 1e-4) {
-                    break;
-                }
-
-                Vec2 direction = velocity / local_speed;
-                const Vec2 midpoint = world_cursor + direction * (streamline_step * 0.5);
-                const Vec2 midpoint_velocity = simulation.flow_velocity(midpoint);
-                if (midpoint_velocity.length() > 1e-4) {
-                    direction = midpoint_velocity / midpoint_velocity.length();
-                }
-
-                world_cursor += direction * streamline_step;
-                const Vector2 current = to_screen(world_cursor, layout);
-                if (!in_bounds(current)) {
-                    break;
-                }
-                DrawLineEx(previous, current, 1.1f, trail);
-                last = current;
-                previous = current;
-            }
-
-            Color arrow_color = flow_field_color();
-            arrow_color.a = static_cast<unsigned char>(
-                std::clamp(80.0 + speed * 35.0, 80.0, 165.0));
-            const Vector2 arrow_delta = clamp_delta(
-                world_vector_to_screen(seed_flow, overlay.flow_scale, layout),
-                46.0f);
-            draw_arrow(seed_screen, arrow_delta, arrow_color, 1.4f);
-
-            const Vector2 trail_delta = {last.x - seed_screen.x, last.y - seed_screen.y};
-            if (length(trail_delta) > 14.0f) {
-                DrawCircleV(last, 1.5f, arrow_color);
-            }
-        }
-    }
-}
-
 } // namespace vector_overlay_detail
 
 inline void draw_vector_overlay(const Simulation& simulation,
@@ -375,7 +276,6 @@ inline void draw_vector_overlay(const Simulation& simulation,
         return;
     }
 
-    vector_overlay_detail::draw_flow_field(simulation, layout, overlay);
     if (diagnostics == nullptr) {
         return;
     }
@@ -512,8 +412,7 @@ inline void draw_vector_overlay(const Simulation& simulation,
 
 inline void draw_vector_legend(const PendulumLayout& layout,
                                const VectorOverlayConfig& overlay,
-                               bool rigid_mode,
-                               bool flow_active) {
+                               bool rigid_mode) {
     if (!overlay.enabled) {
         return;
     }
@@ -525,7 +424,6 @@ inline void draw_vector_legend(const PendulumLayout& layout,
 
     LegendItem items[8];
     int count = 0;
-    if (overlay.show_flow_field && flow_active) items[count++] = {"Ambient Flow", vector_overlay_detail::flow_field_color()};
     if (overlay.show_velocity) items[count++] = {"Velocity", vector_overlay_detail::velocity_color()};
     if (overlay.show_gravity) items[count++] = {"Gravity", vector_overlay_detail::gravity_color()};
     if (overlay.show_drag) items[count++] = {"Bob Drag", vector_overlay_detail::drag_color()};
