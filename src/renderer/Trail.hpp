@@ -22,11 +22,17 @@ public:
 
     void clear() { head = 0; count = 0; }
 
+    bool empty() const { return count == 0; }
+
     std::size_t size() const { return count; }
 
     // Chronological access: index 0 = oldest, index (size-1) = newest.
     const Entry& at(std::size_t i) const {
         return entries[(head + N - count + i) % N];
+    }
+
+    const Entry& newest() const {
+        return entries[(head + N - 1) % N];
     }
 
 private:
