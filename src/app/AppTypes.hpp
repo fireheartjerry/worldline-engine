@@ -151,6 +151,20 @@ struct VisualDraft {
     OverlayPreset preset = OverlayPreset::CUSTOM;
 };
 
+struct SeededLawPreview {
+    std::vector<Vec2> phase_path;
+    std::vector<double> p_samples;
+    double linear_gain = 1.0;
+    double accel_ceiling = 0.0;
+    double max_accel = 0.0;
+    double mean_speed = 0.0;
+    double radius_mean = 0.0;
+    double radius_peak = 0.0;
+    double handedness = 0.0;
+    double p_min = 0.0;
+    double p_max = 0.0;
+};
+
 struct SeededUniverseResult {
     bool ready = false;
     std::string seed;
@@ -158,6 +172,7 @@ struct SeededUniverseResult {
     SeedMachineTrace machine_trace;
     std::vector<double> lanes;
     MetaSpec meta_spec{};
+    SeededLawPreview law_preview{};
     std::string descriptor;
     std::string error;
 };
@@ -172,6 +187,7 @@ enum class SeededInfoTopic {
     REGISTERS,
     ORBIT,
     TENSORS,
+    LAW_WEAVE,
     DESCRIPTOR
 };
 

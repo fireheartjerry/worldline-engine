@@ -21,12 +21,19 @@ add_library(worldline_seed
 )
 target_include_directories(worldline_seed PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+add_library(worldline_physics
+    src/physics/LawSpec.cpp
+)
+target_include_directories(worldline_physics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_physics PUBLIC worldline_seed)
+
 add_executable(worldline src/main.cpp)
 target_include_directories(worldline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(worldline raylib worldline_seed)
+target_link_libraries(worldline raylib worldline_seed worldline_physics)
 
 add_executable(worldline_physics_tests tests/physics_verification.cpp)
 target_include_directories(worldline_physics_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_physics_tests PRIVATE worldline_physics)
 add_test(NAME physics_verification COMMAND worldline_physics_tests)
 
 add_executable(worldline_seed_tests tests/seed_verification.cpp)

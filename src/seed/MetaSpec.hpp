@@ -12,10 +12,13 @@ struct MetaSpec {
     double G[2][2][2]{};
     double W[2][2]{};
     double p = 0.0;
-    bool p_dynamic = false;   // ADD
-    double p_beta = 0.0;     // ADD — self-mod rate, used by integrator
+    bool p_dynamic = false;
+    double p_beta = 0.0;
     double q0[2]{};
     double qdot0[2]{};
+    double s_a = 0.0; // potential modification weight
+    double s_b = 0.0; // symmetry projection weight  
+    double s_c = 0.0; // antisymmetric torque weight
 };
 
 MetaSpec generate_meta_spec(const std::vector<double>& lanes);

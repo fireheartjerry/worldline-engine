@@ -91,7 +91,7 @@ void append_bits(std::vector<std::uint64_t>& bits, const double tensor[2][2][2])
 
 std::vector<std::uint64_t> meta_bits(const MetaSpec& ms) {
     std::vector<std::uint64_t> bits;
-    bits.reserve(41u);
+    bits.reserve(46u);
     append_bits(bits, ms.g);
     append_bits(bits, ms.V);
     append_bits(bits, ms.C);
@@ -100,10 +100,15 @@ std::vector<std::uint64_t> meta_bits(const MetaSpec& ms) {
     append_bits(bits, ms.G);
     append_bits(bits, ms.W);
     bits.push_back(canonical_double_bits(ms.p));
+    bits.push_back(ms.p_dynamic ? 1u : 0u);
+    bits.push_back(canonical_double_bits(ms.p_beta));
     bits.push_back(canonical_double_bits(ms.q0[0]));
     bits.push_back(canonical_double_bits(ms.q0[1]));
     bits.push_back(canonical_double_bits(ms.qdot0[0]));
     bits.push_back(canonical_double_bits(ms.qdot0[1]));
+    bits.push_back(canonical_double_bits(ms.s_a));
+    bits.push_back(canonical_double_bits(ms.s_b));
+    bits.push_back(canonical_double_bits(ms.s_c));
     return bits;
 }
 
@@ -213,8 +218,16 @@ void test_structural_invariants() {
     require(antisymmetric2_exact(ms.G[0]), "G[0] must be antisymmetric");
     require(antisymmetric2_exact(ms.G[1]), "G[1] must be antisymmetric");
 
-    require(ms.p >= -3.0 && ms.p <= 3.0,
-            "p must stay inside [-3, 3]");
+    require(ms.p >= -4.5 && ms.p <= 4.5,
+            "p must stay inside [-4.5, 4.5]");
+    require(ms.p_beta >= 0.15 && ms.p_beta <= 0.40,
+            "p_beta must stay inside [0.15, 0.40]");
+    require(ms.s_a >= 0.0 && ms.s_a <= 1.0,
+            "s_a must stay inside [0, 1]");
+    require(ms.s_b >= 0.0 && ms.s_b <= 1.0,
+            "s_b must stay inside [0, 1]");
+    require(ms.s_c >= 0.0 && ms.s_c <= 1.0,
+            "s_c must stay inside [0, 1]");
 
     const double q_norm = norm2(ms.q0);
     const double qdot_norm = norm2(ms.qdot0);
@@ -331,7 +344,7 @@ void test_distribution_richness_corpus() {
             0.20 * std::min(1.0, tg / 0.42) +
             0.20 * std::min(1.0, c / 1.35) +
             0.14 * std::min(1.0, qd / 1.30) +
-            0.14 * std::min(1.0, std::abs(ms.p) / 3.0);
+            0.14 * std::min(1.0, std::abs(ms.p) / 4.5);
 
         w_norms.push_back(w);
         c_norms.push_back(c);
@@ -369,6 +382,24 @@ void test_distribution_richness_corpus() {
     require(median(descriptor_lengths) > 2500.0, "descriptor should be substantially richer and more detailed");
 }
 
+void test_middle_lane_spread_drives_dynamic_p() {
+    std::vector<double> flat_middle = flat_lanes(0.5);
+    const MetaSpec static_p = generate_meta_spec(flat_middle);
+    require(!static_p.p_dynamic,
+            "uniform middle lanes should not trigger dynamic p");
+
+    std::vector<double> spread_middle = flat_lanes(0.5);
+    spread_middle[15] = 0.0;
+    spread_middle[18] = 1.0;
+    spread_middle[21] = 0.0;
+    spread_middle[24] = 1.0;
+    spread_middle[27] = 0.0;
+    spread_middle[29] = 1.0;
+    const MetaSpec dynamic_p = generate_meta_spec(spread_middle);
+    require(dynamic_p.p_dynamic,
+            "wide middle-lane spread should trigger dynamic p");
+}
+
 } // namespace
 
 int main() {
@@ -381,6 +412,7 @@ int main() {
     test_descriptor_clauses();
     test_seed_regression_envelopes();
     test_distribution_richness_corpus();
+    test_middle_lane_spread_drives_dynamic_p();
     return 0;
 }
 

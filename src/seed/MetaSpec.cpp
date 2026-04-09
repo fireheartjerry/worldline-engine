@@ -89,6 +89,10 @@ double comm_scalar(const Mat2& lhs, const Mat2& rhs) {
     return ab.xy - ba.xy;
 }
 
+double normalized_commutator(const Mat2& lhs, const Mat2& rhs) {
+    return comm_scalar(lhs, rhs) / (1.0 + frob(lhs) + frob(rhs));
+}
+
 Vec2d add(Vec2d lhs, Vec2d rhs) {
     return {lhs.x + rhs.x, lhs.y + rhs.y};
 }
@@ -586,6 +590,14 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
     const double s_lambda1 = s_envelope * lerp(-0.80, 0.80, u[7]);
     const double s_theta = kPi * (u[8] - 0.5);
     s = make_spectral_from_values(s_lambda0, s_lambda1, s_theta);
+    const double s_strength = frob(s.matrix);
+    const double s_signed_mean = 0.5 * (s.lambda0 + s.lambda1);
+    const double s_mean_scale =
+        0.5 * (std::abs(s.lambda0) + std::abs(s.lambda1)) + kNormEpsilon;
+    const double s_a = clamp01(0.5 + 0.5 * s_signed_mean / s_mean_scale);
+    const double s_b = spectral_anisotropy(s.lambda0, s.lambda1);
+    const double s_c = clamp01(
+        std::abs(std::sin(2.0 * s.theta)) * s_strength / (1.0 + s_strength));
 
     const double c0_span = 0.65 + 0.40 * extreme_factor;
     const double c1_min = -0.50 - 0.18 * extreme_factor;
@@ -602,12 +614,10 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
 
     const double gamma_scale = 0.90 + 0.34 * extreme_factor;
     const double tau_scale = 0.80 + 0.36 * extreme_factor;
-    const double gamma0 = gamma_scale * comm_scalar(c0.matrix, h5.matrix)
-        / (1.0 + frob(c0.matrix) + frob(h5.matrix));
-    const double gamma1 = gamma_scale * comm_scalar(c1.matrix, h6.matrix)
-        / (1.0 + frob(c1.matrix) + frob(h6.matrix));
-    const double tau = tau_scale * comm_scalar(h7.matrix, h8.matrix)
-        / (1.0 + frob(h7.matrix) + frob(h8.matrix));
+    const double gamma0 = gamma_scale * normalized_commutator(c0.matrix, h5.matrix);
+    const double gamma1 = gamma_scale * normalized_commutator(c1.matrix, h6.matrix);
+    const double tau_comm = normalized_commutator(h7.matrix, h8.matrix);
+    const double tau = tau_scale * tau_comm;
 
     const double c_norm = frob(c0.matrix) + frob(c1.matrix);
     const double symmetry_strength = frob(s.matrix);
@@ -637,17 +647,31 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
 
     const double frob_h5 = frob(h5.matrix);
     const double frob_h6 = frob(h6.matrix);
-    const double frob_ratio = (frob_h5 - frob_h6)
+    const double frob_contrast = (frob_h5 - frob_h6)
         / (frob_h5 + frob_h6 + kNormEpsilon);
-    const double lane_fold = u[15] - 0.5 * u[20] + 0.25 * u[25] - 0.5;
+    const double middle_fold =
+        ((u[15] + u[18] + u[21] + u[24] + u[27])
+        - (u[16] + u[19] + u[22] + u[25] + u[28])
+        + 0.5 * ((u[17] + u[20] + u[23] + u[26] + u[29]) - 2.5))
+        / 6.25;
+    const double h9_signature = saturate(
+        0.5 * (h9.lambda0 + h9.lambda1)
+            + 0.35 * (h9.lambda0 - h9.lambda1) * std::cos(2.0 * (h9.theta - g.theta))
+            + 0.15 * std::sin(2.0 * (h9.theta - v.theta)),
+        1.0);
     const double driver =
-        0.30 * (0.5 * (h9.lambda0 + h9.lambda1)
-                + 0.35 * (h9.lambda0 - h9.lambda1) * std::cos(2.0 * (h9.theta - g.theta))
-                + 0.15 * std::sin(2.0 * (h9.theta - v.theta)))
-        + 0.25 * (tau / tau_scale)
-        + 0.20 * frob_ratio
-        + 0.15 * lane_fold
-        + 0.10 * misalign;
+        0.26 * h9_signature
+        + 0.22 * tau_comm
+        + 0.19 * frob_contrast
+        + 0.18 * middle_fold
+        + 0.15 * (2.0 * misalign - 1.0);
+    double middle_min = u[15];
+    double middle_max = u[15];
+    for (int i = 16; i <= 29; ++i) {
+        middle_min = std::min(middle_min, u[i]);
+        middle_max = std::max(middle_max, u[i]);
+    }
+    const double middle_spread = middle_max - middle_min;
 
     const double phi = kTwoPi * u[30];
     const bool soft_is_first = std::abs(v.lambda0) <= std::abs(v.lambda1);
@@ -685,13 +709,17 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
     store_matrix(c0.matrix, meta_spec.C[0]);
     store_matrix(c1.matrix, meta_spec.C[1]);
     store_matrix(s.matrix, meta_spec.S);
+    meta_spec.s_a = s_a;
+    meta_spec.s_b = s_b;
+    meta_spec.s_c = s_c;
+
     store_matrix(scale(j, tau), meta_spec.T);
     store_matrix(scale(j, gamma0), meta_spec.G[0]);
     store_matrix(scale(j, gamma1), meta_spec.G[1]);
     store_matrix(w.matrix, meta_spec.W);
     meta_spec.p = 4.5 * std::tanh(driver);
-    meta_spec.p_dynamic = (u[17] + u[22] + u[27]) / 3.0 > 0.58;
-    meta_spec.p_beta = 0.15 + 0.25 * u[16];
+    meta_spec.p_dynamic = middle_spread > 0.58;
+    meta_spec.p_beta = 0.15 + 0.25 * u[24];
     meta_spec.q0[0] = q0.x;
     meta_spec.q0[1] = q0.y;
     meta_spec.qdot0[0] = qdot0.x;

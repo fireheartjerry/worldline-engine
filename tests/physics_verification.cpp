@@ -1,4 +1,6 @@
 #include "physics/Simulation.hpp"
+#include "physics/LawSpec.hpp"
+#include "seed/MetaSpec.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -14,6 +16,10 @@ bool is_finite(Vec2 value) {
     return is_finite(value.x) && is_finite(value.y);
 }
 
+bool is_finite(const LawState& state) {
+    return is_finite(state.q) && is_finite(state.v) && is_finite(state.p);
+}
+
 void require(bool condition, const std::string& message) {
     if (!condition) {
         std::cerr << "physics_verification failed: " << message << '\n';
@@ -24,6 +30,58 @@ void require(bool condition, const std::string& message) {
 double relative_error(double a, double b) {
     const double scale = std::max(1.0, std::max(std::abs(a), std::abs(b)));
     return std::abs(a - b) / scale;
+}
+
+double spectral_norm_symmetric(const double matrix[2][2]) {
+    const double trace = matrix[0][0] + matrix[1][1];
+    const double disc = std::sqrt(std::max(
+        0.0,
+        (matrix[0][0] - matrix[1][1]) * (matrix[0][0] - matrix[1][1])
+            + 4.0 * matrix[0][1] * matrix[0][1]));
+    const double lambda0 = 0.5 * (trace + disc);
+    const double lambda1 = 0.5 * (trace - disc);
+    return std::max(std::abs(lambda0), std::abs(lambda1));
+}
+
+MetaSpec make_law_meta(bool dynamic_p) {
+    MetaSpec ms;
+    ms.g[0][0] = 1.25; ms.g[0][1] = 0.10;
+    ms.g[1][0] = 0.10; ms.g[1][1] = 1.05;
+
+    ms.V[0][0] = 1.60; ms.V[0][1] = 0.20;
+    ms.V[1][0] = 0.20; ms.V[1][1] = 0.90;
+
+    ms.C[0][0][0] = 0.28; ms.C[0][0][1] = 0.06;
+    ms.C[0][1][0] = 0.06; ms.C[0][1][1] = -0.18;
+
+    ms.C[1][0][0] = 0.12; ms.C[1][0][1] = -0.05;
+    ms.C[1][1][0] = -0.05; ms.C[1][1][1] = 0.22;
+
+    ms.S[0][0] = 0.45; ms.S[0][1] = 0.18;
+    ms.S[1][0] = 0.18; ms.S[1][1] = -0.22;
+
+    ms.T[0][1] = 0.20;
+    ms.T[1][0] = -0.20;
+
+    ms.G[0][0][1] = 0.12;
+    ms.G[0][1][0] = -0.12;
+    ms.G[1][0][1] = -0.08;
+    ms.G[1][1][0] = 0.08;
+
+    ms.W[0][0] = 0.16; ms.W[0][1] = 0.04;
+    ms.W[1][0] = 0.04; ms.W[1][1] = -0.10;
+
+    ms.p = 1.35;
+    ms.p_dynamic = dynamic_p;
+    ms.p_beta = 0.40;
+    ms.q0[0] = 0.85;
+    ms.q0[1] = 0.10;
+    ms.qdot0[0] = 0.15;
+    ms.qdot0[1] = 1.20;
+    ms.s_a = 0.62;
+    ms.s_b = 0.55;
+    ms.s_c = 0.38;
+    return ms;
 }
 
 void require_finite(const Simulation& sim, const std::string& label) {
@@ -273,6 +331,96 @@ void test_visual_diagnostics_expose_resistive_loads() {
             "visual diagnostics should expose elbow torque");
 }
 
+void test_lawspec_binds_linear_potential_gain() {
+    MetaSpec ms = make_law_meta(false);
+    ms.V[0][0] = 12.0;
+    ms.V[1][1] = 9.0;
+    ms.V[0][1] = 0.0;
+    ms.V[1][0] = 0.0;
+    ms.S[0][0] = 0.7;
+    ms.S[1][1] = -0.4;
+    ms.S[0][1] = ms.S[1][0] = 0.0;
+    ms.s_a = 0.75;
+
+    const LawSpec law(ms);
+    require(law.potential_linear_gain() <= 1.0,
+            "LawSpec must not amplify the linear potential gain");
+    require(law.bounded_potential_spectral_norm() <= 1.35 + 1.0e-9,
+            "LawSpec must clamp the potential linear spectral norm");
+    require(law.bounded_potential_spectral_norm()
+                <= law.potential_linear_gain() * (spectral_norm_symmetric(ms.V) + ms.s_a * spectral_norm_symmetric(ms.S)) + 1.0,
+            "bounded potential norm should remain tied to the underlying symmetric spectra");
+}
+
+void test_lawspec_state_evolution_stays_finite() {
+    const LawSpec law(generate_meta_spec("worldline-law-engine"));
+    LawState state = law.initial_state();
+
+    require(is_finite(law.derivative(state)),
+            "LawSpec derivative must be finite at the seeded initial state");
+    for (int i = 0; i < 512; ++i) {
+        state = law.step(state, 0.01);
+        require(is_finite(state),
+                "LawSpec integration must remain finite across repeated RK4 steps");
+    }
+}
+
+void test_lawspec_dynamic_p_evolves_but_stays_clamped() {
+    const LawSpec law(make_law_meta(true));
+    LawState state = law.initial_state();
+    const double seeded_p = state.p;
+    bool changed = false;
+
+    for (int i = 0; i < 128; ++i) {
+        state = law.step(state, 0.04);
+        require(is_finite(state), "dynamic-p LawSpec state must remain finite");
+        require(state.p >= seeded_p - 0.5 - 1.0e-9
+                    && state.p <= seeded_p + 0.5 + 1.0e-9,
+                "dynamic p must stay clamped around its seeded value");
+        if (std::abs(state.p - seeded_p) > 1.0e-3) {
+            changed = true;
+        }
+    }
+
+    require(changed,
+            "dynamic p should respond to angular momentum over time");
+}
+
+void test_lawspec_static_p_snaps_back_to_seed() {
+    const LawSpec law(make_law_meta(false));
+    LawState state = law.initial_state();
+    state.p = law.seeded_p() + 0.35;
+
+    state = law.step(state, 0.05);
+    require(std::abs(state.p - law.seeded_p()) < 1.0e-12,
+            "static p should remain fixed at the seeded value");
+}
+
+void test_lawspec_runtime_halving_handles_large_acceleration() {
+    MetaSpec ms = make_law_meta(true);
+    ms.p = 4.0;
+    ms.V[0][0] = 14.0;
+    ms.V[1][1] = 10.0;
+    ms.C[0][0][0] = 8.0;
+    ms.C[0][1][1] = -7.0;
+    ms.q0[0] = 10.0;
+    ms.q0[1] = -8.0;
+    ms.qdot0[0] = 3.0;
+    ms.qdot0[1] = 2.5;
+
+    const LawSpec law(ms);
+    const LawState initial = law.initial_state();
+    require(law.acceleration(initial).length() > law.acceleration_ceiling(),
+            "test setup should exceed the acceleration ceiling and trigger step refinement");
+
+    const LawState advanced = law.step(initial, 0.5);
+    require(is_finite(advanced),
+            "adaptive LawSpec stepping must remain finite under large acceleration");
+    require(advanced.p >= law.seeded_p() - 0.5 - 1.0e-9
+                && advanced.p <= law.seeded_p() + 0.5 + 1.0e-9,
+            "adaptive stepping must preserve the dynamic p clamp");
+}
+
 } // namespace
 int main() {
     test_conservative_rigid_energy_stability();
@@ -282,6 +430,11 @@ int main() {
     test_adaptive_stepper_matches_fine_reference();
     test_joint_resistance_is_rigid_only();
     test_visual_diagnostics_expose_resistive_loads();
+    test_lawspec_binds_linear_potential_gain();
+    test_lawspec_state_evolution_stays_finite();
+    test_lawspec_dynamic_p_evolves_but_stays_clamped();
+    test_lawspec_static_p_snaps_back_to_seed();
+    test_lawspec_runtime_halving_handles_large_acceleration();
     std::cout << "physics_verification passed\n";
     return 0;
 }

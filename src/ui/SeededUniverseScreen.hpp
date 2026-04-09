@@ -4,6 +4,7 @@
 #include "UiPrimitives.hpp"
 
 #include "../app/AppTypes.hpp"
+#include "../physics/LawSpec.hpp"
 #include "../seed/MetaSpec.hpp"
 #include "../seed/SeedDebug.hpp"
 
@@ -12,6 +13,7 @@
 #include <cmath>
 #include <cstdio>
 #include <exception>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -58,6 +60,89 @@ inline float clamp_playback(float time_value) {
     return std::clamp(time_value, 0.0f, 8.0f);
 }
 
+inline SeededLawPreview build_law_preview(const MetaSpec& meta_spec) {
+    SeededLawPreview preview;
+    LawSpec law(meta_spec);
+    LawState state = law.initial_state();
+    constexpr int kSamples = 192;
+    constexpr double kDt = 0.02;
+
+    preview.phase_path.reserve(kSamples + 1);
+    preview.p_samples.reserve(kSamples + 1);
+    preview.phase_path.push_back(state.q);
+    preview.p_samples.push_back(state.p);
+    preview.linear_gain = law.potential_linear_gain();
+    preview.accel_ceiling = law.acceleration_ceiling();
+    preview.p_min = state.p;
+    preview.p_max = state.p;
+
+    double speed_sum = state.v.length();
+    double radius_sum = state.q.length();
+    double handed_sum = 0.0;
+    preview.radius_peak = state.q.length();
+    preview.max_accel = law.acceleration(state).length();
+
+    for (int i = 0; i < kSamples; ++i) {
+        const double angular = state.q.x * state.v.y - state.q.y * state.v.x;
+        handed_sum += angular;
+
+        state = law.step(state, kDt);
+        preview.phase_path.push_back(state.q);
+        preview.p_samples.push_back(state.p);
+        preview.p_min = std::min(preview.p_min, state.p);
+        preview.p_max = std::max(preview.p_max, state.p);
+
+        const double speed = state.v.length();
+        const double radius = state.q.length();
+        speed_sum += speed;
+        radius_sum += radius;
+        preview.radius_peak = std::max(preview.radius_peak, radius);
+        preview.max_accel = std::max(preview.max_accel, law.acceleration(state).length());
+    }
+
+    const double sample_count = static_cast<double>(preview.phase_path.size());
+    preview.mean_speed = speed_sum / sample_count;
+    preview.radius_mean = radius_sum / sample_count;
+    preview.handedness = handed_sum / (static_cast<double>(kSamples) + std::abs(handed_sum) + 1.0e-9);
+    return preview;
+}
+
+inline std::string law_mode_label(const MetaSpec& meta_spec) {
+    return meta_spec.p_dynamic ? "dynamic p" : "seed-locked p";
+}
+
+inline std::string law_readout(const MetaSpec& meta_spec,
+                               const SeededLawPreview& preview) {
+    std::string out = "LAW WEAVE\n";
+    out += "LawSpec turns the tensor vault into a bounded phase flow. ";
+    out += meta_spec.p_dynamic
+        ? "Here the exponent is allowed to breathe with angular momentum before it is pulled back toward its seed. "
+        : "Here the exponent remains pinned to its seeded value, so the flow is structurally stable rather than self-adjusting. ";
+
+    out += "The construction-time potential gain is ";
+    out += format_number(preview.linear_gain, 2);
+    out += ", the observed acceleration peak in the preview is ";
+    out += format_number(preview.max_accel, 2);
+    out += " against a ceiling of ";
+    out += format_number(preview.accel_ceiling, 2);
+    out += ". ";
+
+    out += "The symmetry split is carried explicitly: additive ";
+    out += format_number(meta_spec.s_a, 2);
+    out += ", filter ";
+    out += format_number(meta_spec.s_b, 2);
+    out += ", torque ";
+    out += format_number(meta_spec.s_c, 2);
+    out += ". ";
+
+    out += "Across the preview, the orbit radius averages ";
+    out += format_number(preview.radius_mean, 2);
+    out += " and the handedness bias is ";
+    out += format_number(preview.handedness, 2);
+    out += ".";
+    return out;
+}
+
 inline void run_generation(SeededUniverseUiState& state) {
     SeededUniverseResult result;
     result.seed = state.seed_input;
@@ -68,6 +153,9 @@ inline void run_generation(SeededUniverseUiState& state) {
         result.lanes.assign(result.machine_trace.output.begin(), result.machine_trace.output.end());
         result.meta_spec = generate_meta_spec(result.lanes);
         result.descriptor = generate_descriptor(result.meta_spec);
+        result.law_preview = build_law_preview(result.meta_spec);
+        result.descriptor += "\n\n";
+        result.descriptor += law_readout(result.meta_spec, result.law_preview);
         result.ready = true;
     } catch (const std::exception& ex) {
         result.error = ex.what();
@@ -1094,6 +1182,157 @@ inline void draw_tensors_panel(Rectangle rect,
     draw_matrix_card({cx + 2.0f * (card_w + gap), content_y + card_h + gap, card_w, card_h}, "W", "warp / distortion", ms.W, WL::CYAN_DIM, 5);
 }
 
+// ── Law Weave Panel ─────────────────────────────────────────────────────────
+
+inline void draw_law_panel(Rectangle rect,
+                           SeededUniverseUiState& seeded,
+                           float scale) {
+    draw_card(rect, {7, 14, 27, 226}, with_alpha(WL::PLASMA_GREEN, 80));
+    DrawRectangleGradientEx(rect,
+                            {10, 34, 32, 34},
+                            {7, 12, 22, 10},
+                            {6, 12, 22, 8},
+                            {24, 10, 36, 24});
+    const PanelHeaderResult header = draw_panel_header(
+        rect,
+        "LAWSPEC",
+        "Law weave",
+        "The tensor vault is folded into a bounded phase flow here. The path is a real LawSpec preview, not a decoration.",
+        scale,
+        WL::PLASMA_GREEN);
+    if (header.info_clicked) {
+        open_info_modal(seeded, SeededInfoTopic::LAW_WEAVE);
+    }
+
+    const MetaSpec& ms = seeded.result.meta_spec;
+    const SeededLawPreview& preview = seeded.result.law_preview;
+    const float pad = 14.0f * scale;
+    const float content_y = rect.y + 72.0f * scale;
+    const float content_h = rect.height - (content_y - rect.y) - 12.0f * scale;
+    const float plot_w = rect.width * 0.58f;
+    const Rectangle plot = {
+        rect.x + pad,
+        content_y,
+        plot_w - pad,
+        content_h
+    };
+    const Rectangle side = {
+        plot.x + plot.width + 10.0f * scale,
+        content_y,
+        rect.x + rect.width - (plot.x + plot.width + 10.0f * scale) - pad,
+        content_h
+    };
+
+    DrawRectangleRounded(plot, 0.06f, 8, {6, 16, 28, 215});
+    DrawRectangleRoundedLines(plot, 0.06f, 8, 1.0f, with_alpha(WL::PLASMA_GREEN, 70));
+
+    const Vector2 center = {plot.x + plot.width * 0.5f, plot.y + plot.height * 0.5f};
+    const float ring_radius = std::min(plot.width, plot.height) * 0.40f;
+    DrawRing(center, ring_radius * 0.45f, ring_radius * 0.45f + 1.0f * scale, 0.0f, 360.0f, 72, {64, 220, 180, 14});
+    DrawRing(center, ring_radius * 0.82f, ring_radius * 0.82f + 1.0f * scale, 0.0f, 360.0f, 72, {64, 220, 180, 18});
+    DrawLineEx({plot.x + 10.0f * scale, center.y}, {plot.x + plot.width - 10.0f * scale, center.y}, 1.0f, {255, 255, 255, 14});
+    DrawLineEx({center.x, plot.y + 10.0f * scale}, {center.x, plot.y + plot.height - 10.0f * scale}, 1.0f, {255, 255, 255, 14});
+
+    double bound = 0.4;
+    for (const Vec2& point : preview.phase_path) {
+        bound = std::max(bound, std::max(std::abs(point.x), std::abs(point.y)));
+    }
+    bound *= 1.10;
+    const float phase_scale = ring_radius / static_cast<float>(bound);
+    const auto project = [&](Vec2 q) {
+        return Vector2{
+            center.x + static_cast<float>(q.x) * phase_scale,
+            center.y - static_cast<float>(q.y) * phase_scale
+        };
+    };
+
+    const std::size_t visible = visible_count(
+        seeded.playback_time,
+        3.2f,
+        0.012f,
+        preview.phase_path.size(),
+        !seeded.debug_enabled);
+    for (std::size_t index = 1; index < visible; ++index) {
+        const Vector2 a = project(preview.phase_path[index - 1]);
+        const Vector2 b = project(preview.phase_path[index]);
+        const double p_here = preview.p_samples[std::min(index, preview.p_samples.size() - 1)];
+        const double p_span = std::max(0.10, preview.p_max - preview.p_min);
+        const float p_mix = static_cast<float>(std::clamp((p_here - preview.p_min) / p_span, 0.0, 1.0));
+        const Color strand = {
+            static_cast<unsigned char>(WL::CYAN_CORE.r * (1.0f - p_mix) + WL::VIOLET_CORE.r * p_mix),
+            static_cast<unsigned char>(WL::PLASMA_GREEN.g * (1.0f - p_mix) + WL::VIOLET_CORE.g * p_mix),
+            static_cast<unsigned char>(WL::CYAN_CORE.b * (1.0f - p_mix) + WL::VIOLET_CORE.b * p_mix),
+            static_cast<unsigned char>(92 + 120 * (static_cast<float>(index) / std::max<std::size_t>(2u, visible)))
+        };
+        DrawLineEx(a, b, 1.6f * scale, strand);
+    }
+    if (!preview.phase_path.empty()) {
+        const Vector2 start = project(preview.phase_path.front());
+        const Vector2 current = project(preview.phase_path[std::max<std::size_t>(0u, visible == 0u ? 0u : visible - 1u)]);
+        DrawCircleGradient(static_cast<int>(current.x), static_cast<int>(current.y), 11.0f * scale, {130, 255, 220, 90}, {0, 0, 0, 0});
+        DrawCircleV(start, 3.0f * scale, with_alpha(WL::TEXT_PRIMARY, 180));
+        DrawCircleV(current, 4.2f * scale, WL::PLASMA_GREEN);
+        draw_text("seed", {start.x + 4.0f * scale, start.y - 8.0f * scale}, 10.0f * scale, WL::TEXT_TERTIARY);
+        draw_text("live", {current.x + 4.0f * scale, current.y - 8.0f * scale}, 10.0f * scale, WL::TEXT_PRIMARY);
+    }
+
+    draw_text("phase portrait", {plot.x + 8.0f * scale, plot.y + 8.0f * scale}, 11.0f * scale, with_alpha(WL::PLASMA_GREEN, 180));
+    draw_text(law_mode_label(ms), {plot.x + 8.0f * scale, plot.y + 22.0f * scale}, 10.0f * scale, WL::TEXT_SECONDARY);
+
+    draw_metric({side.x, side.y, side.width * 0.48f, 40.0f * scale}, "mode",
+                ms.p_dynamic ? "adaptive" : "fixed", scale * 0.90f);
+    draw_metric({side.x + side.width * 0.52f, side.y, side.width * 0.48f, 40.0f * scale}, "beta",
+                format_number(ms.p_beta, 2), scale * 0.90f);
+    draw_metric({side.x, side.y + 46.0f * scale, side.width * 0.48f, 40.0f * scale}, "lin gain",
+                format_number(preview.linear_gain, 2), scale * 0.90f);
+    draw_metric({side.x + side.width * 0.52f, side.y + 46.0f * scale, side.width * 0.48f, 40.0f * scale}, "accel cap",
+                format_number(preview.accel_ceiling, 1), scale * 0.90f);
+
+    draw_text("p trace", {side.x, side.y + 98.0f * scale}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
+    const Rectangle p_plot = {side.x, side.y + 114.0f * scale, side.width, 50.0f * scale};
+    DrawRectangleRounded(p_plot, 0.08f, 6, {6, 14, 24, 215});
+    DrawRectangleRoundedLines(p_plot, 0.08f, 6, 1.0f, with_alpha(WL::CYAN_CORE, 55));
+    const double p_center = 0.5 * (preview.p_min + preview.p_max);
+    const double p_half_span = std::max(0.12, 0.55 * (preview.p_max - preview.p_min));
+    const std::size_t p_visible = std::max<std::size_t>(2u, visible);
+    for (std::size_t index = 1; index < std::min<std::size_t>(p_visible, preview.p_samples.size()); ++index) {
+        const float x0 = p_plot.x + (p_plot.width - 8.0f * scale) * static_cast<float>(index - 1) / static_cast<float>(preview.p_samples.size() - 1) + 4.0f * scale;
+        const float x1 = p_plot.x + (p_plot.width - 8.0f * scale) * static_cast<float>(index) / static_cast<float>(preview.p_samples.size() - 1) + 4.0f * scale;
+        const float y0 = p_plot.y + p_plot.height * 0.5f
+            - static_cast<float>((preview.p_samples[index - 1] - p_center) / p_half_span) * (p_plot.height * 0.34f);
+        const float y1 = p_plot.y + p_plot.height * 0.5f
+            - static_cast<float>((preview.p_samples[index] - p_center) / p_half_span) * (p_plot.height * 0.34f);
+        DrawLineEx({x0, y0}, {x1, y1}, 1.5f * scale, with_alpha(ms.p_dynamic ? WL::VIOLET_CORE : WL::CYAN_CORE, 180));
+    }
+    draw_text(format_number(preview.p_min, 2) + " -> " + format_number(preview.p_max, 2),
+              {p_plot.x + 6.0f * scale, p_plot.y + p_plot.height - 13.0f * scale},
+              10.0f * scale, WL::TEXT_SECONDARY);
+
+    draw_text("symmetry weave", {side.x, side.y + 174.0f * scale}, 11.0f * scale, with_alpha(WL::XENON_CORE, 170));
+    const auto draw_bar = [&](float y, const char* label, double value, Color accent) {
+        draw_text(label, {side.x, y}, 10.0f * scale, WL::TEXT_SECONDARY);
+        const Rectangle track = {side.x + 70.0f * scale, y + 3.0f * scale, side.width - 70.0f * scale, 8.0f * scale};
+        DrawRectangleRounded(track, 0.5f, 8, {255, 255, 255, 10});
+        DrawRectangleRounded({track.x, track.y, track.width * static_cast<float>(std::clamp(value, 0.0, 1.0)), track.height},
+                             0.5f, 8, with_alpha(accent, 135));
+        draw_text(format_number(value, 2), {track.x + track.width - 28.0f * scale, y - 2.0f * scale},
+                  10.0f * scale, WL::TEXT_PRIMARY);
+    };
+    draw_bar(side.y + 190.0f * scale, "additive", ms.s_a, WL::CYAN_CORE);
+    draw_bar(side.y + 208.0f * scale, "filter", ms.s_b, WL::PLASMA_GREEN);
+    draw_bar(side.y + 226.0f * scale, "torque", ms.s_c, WL::VIOLET_CORE);
+
+    draw_text("mean speed " + format_number(preview.mean_speed, 2)
+                + "  |  radius " + format_number(preview.radius_mean, 2)
+                + " / " + format_number(preview.radius_peak, 2),
+              {side.x, side.y + side.height - 24.0f * scale},
+              10.5f * scale, WL::TEXT_TERTIARY);
+    draw_text("handedness " + format_number(preview.handedness, 2)
+                + "  |  max accel " + format_number(preview.max_accel, 2),
+              {side.x, side.y + side.height - 11.0f * scale},
+              10.5f * scale, WL::TEXT_TERTIARY);
+}
+
 // ── Descriptor / Readout Panel ───────────────────────────────────────────────
 
 inline void draw_descriptor_panel(Rectangle rect,
@@ -1216,6 +1455,7 @@ inline void draw_descriptor_panel(Rectangle rect,
     // ── Right: Summary + Descriptor ──────────────────────────────────────────
     const float right_x = divider_x + 14.0f * scale;
     const float right_w = rect.x + rect.width - right_x - pad;
+    const SeededLawPreview& law = seeded.result.law_preview;
 
     draw_text("UNIVERSE SUMMARY", {right_x, rect.y + 10.0f * scale}, 11.0f * scale, with_alpha(WL::XENON_CORE, 160));
 
@@ -1227,10 +1467,21 @@ inline void draw_descriptor_panel(Rectangle rect,
     draw_metric({right_x + 240.0f * scale, met_y, 144.0f * scale, 40.0f * scale}, "qdot0",
                 format_number(ms.qdot0[0], 2) + ", " + format_number(ms.qdot0[1], 2), scale * 0.95f);
 
+    const float law_y = met_y + 46.0f * scale;
+    draw_metric({right_x, law_y, 118.0f * scale, 36.0f * scale}, "p mode",
+                ms.p_dynamic ? "adaptive" : "fixed", scale * 0.82f);
+    draw_metric({right_x + 124.0f * scale, law_y, 88.0f * scale, 36.0f * scale}, "beta",
+                format_number(ms.p_beta, 2), scale * 0.82f);
+    draw_metric({right_x + 218.0f * scale, law_y, 166.0f * scale, 36.0f * scale}, "S (a/b/c)",
+                format_number(ms.s_a, 2) + " / " + format_number(ms.s_b, 2) + " / " + format_number(ms.s_c, 2),
+                scale * 0.82f);
+    draw_metric({right_x + 390.0f * scale, law_y, 122.0f * scale, 36.0f * scale}, "law gain",
+                format_number(law.linear_gain, 2), scale * 0.82f);
+
     // Strength chips
     const auto strengths = stage_strengths(ms);
     static constexpr const char* kShort[] = {"g", "V", "S", "C", "T/G", "L"};
-    const float chip_y = met_y + 48.0f * scale;
+    const float chip_y = law_y + 44.0f * scale;
     const float chip_gap = 4.0f * scale;
     const float chip_w = std::min(60.0f * scale, (right_w - chip_gap * 5.0f) / 6.0f);
     for (int index = 0; index < 6; ++index) {
@@ -1299,6 +1550,7 @@ inline const char* info_title(SeededInfoTopic topic) {
     case SeededInfoTopic::REGISTERS: return "Register Residue";
     case SeededInfoTopic::ORBIT: return "Assembly Map";
     case SeededInfoTopic::TENSORS: return "Tensor Vault";
+    case SeededInfoTopic::LAW_WEAVE: return "Law Weave";
     case SeededInfoTopic::DESCRIPTOR: return "Universe Readout";
     default: return "";
     }
@@ -1322,6 +1574,8 @@ inline const char* info_body(SeededInfoTopic topic) {
         return "The orbit map arranges the six main components of your universe's physics in a circle. Each node represents one family of physical laws.\n\nMetric: How distances work in this universe.\nPotential: The energy landscape that pulls things around.\nSymmetry: How balanced the physics is between the two pendulum arms.\nCoupling: How strongly the two pendulums influence each other.\nArrow: Whether time has directional effects.\nLaunch: The starting position and velocity.\n\nBigger, brighter nodes have more influence on the final simulation.";
     case SeededInfoTopic::TENSORS:
         return "Each tile shows a 2x2 matrix: four numbers arranged in a grid. These matrices are the actual mathematical objects that define your universe's physics.\n\nTeal cells are positive values. Violet cells are negative values. Brighter = larger magnitude.\n\nThink of each matrix as a set of knobs. The diagonal values (top-left and bottom-right) affect each pendulum arm independently. The off-diagonal values (top-right and bottom-left) create cross-effects between the arms.\n\nClick any tile to inspect it in the readout panel below.";
+    case SeededInfoTopic::LAW_WEAVE:
+        return "Law Weave is the first place the seed stops looking like ingredients and starts looking like motion. The MetaSpec tensors are passed into LawSpec, which builds a vector field on phase space and then samples it with RK4.\n\nThe phase portrait on the left is not a decorative path. It is a short preview orbit generated directly from the seeded initial condition. The sparkline on the right shows how the nonlinear exponent p behaves across that preview. If p is dynamic, the line flexes with angular momentum but stays clamped near its seed.\n\nThe gain and ceiling metrics tell you how the law engine was stabilized: the linear potential term is spectrally bounded at construction time, and large accelerations trigger runtime step refinement rather than explosive drift. The three S bars show how symmetry affects the law after assembly: additive bias, symmetry filtering, and antisymmetric torque.";
     case SeededInfoTopic::DESCRIPTOR:
         return "The readout panel adapts to whatever you've clicked. It shows detailed information about the selected element: a lane value, a register, a mutation event, a tensor matrix, or an orbit node.\n\nThe left side shows your current selection with a value gauge. The right side shows a summary of the whole universe including the key physics parameters and a natural-language description of what this particular universe is like.\n\nThe strength chips at the bottom right let you quickly jump between the six physics families.";
     default:
@@ -1545,14 +1799,15 @@ inline bool draw_seeded_universe_screen(AppState& app, Rectangle viewport) {
     const float registers_h = 240.0f * scale;
     const float orbit_h = 260.0f * scale;
     const float tensors_h = 260.0f * scale;
+    const float law_h = 252.0f * scale;
     const float descriptor_h = 272.0f * scale;
 
-    // Content height: two columns, then full-width descriptor
+    // Content height: two columns, metaspec assembly row, law weave, then readout
     const float left_col_h = expansion_h + gap + machine_h;
     const float right_col_h = lanes_h + gap + registers_h;
     const float two_col_h = std::max(left_col_h, right_col_h);
     const float orbit_row_h = std::max(orbit_h, tensors_h);
-    const float content_height = two_col_h + gap + orbit_row_h + gap + descriptor_h;
+    const float content_height = two_col_h + gap + orbit_row_h + gap + law_h + gap + descriptor_h;
     const float max_scroll = std::max(0.0f, content_height - body_view.height);
 
     BeginScissorMode(static_cast<int>(body_view.x), static_cast<int>(body_view.y),
@@ -1579,9 +1834,13 @@ inline bool draw_seeded_universe_screen(AppState& app, Rectangle viewport) {
     draw_orbit_panel({body_view.x, row3_y, orbit_w, orbit_row_h}, seeded, scale);
     draw_tensors_panel({body_view.x + orbit_w + col_gap, row3_y, tensors_w, orbit_row_h}, seeded, scale);
 
-    // Row 4: Descriptor — full width
+    // Row 4: LawSpec preview — full width bridge between tensors and readout
     const float row4_y = row3_y + orbit_row_h + gap;
-    draw_descriptor_panel({body_view.x, row4_y, body_view.width, descriptor_h}, seeded, scale);
+    draw_law_panel({body_view.x, row4_y, body_view.width, law_h}, seeded, scale);
+
+    // Row 5: Descriptor — full width
+    const float row5_y = row4_y + law_h + gap;
+    draw_descriptor_panel({body_view.x, row5_y, body_view.width, descriptor_h}, seeded, scale);
 
     EndScissorMode();
 
