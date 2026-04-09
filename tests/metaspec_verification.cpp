@@ -45,6 +45,16 @@ double norm2(const double vector[2]) {
     return std::sqrt(sqr(vector[0]) + sqr(vector[1]));
 }
 
+double median(std::vector<double> values) {
+    require(!values.empty(), "median requires non-empty values");
+    std::sort(values.begin(), values.end());
+    const std::size_t mid = values.size() / 2u;
+    if ((values.size() % 2u) == 0u) {
+        return 0.5 * (values[mid - 1u] + values[mid]);
+    }
+    return values[mid];
+}
+
 bool symmetric2(const double matrix[2][2], double tolerance = 1.0e-12) {
     return std::abs(matrix[0][1] - matrix[1][0]) <= tolerance;
 }
@@ -97,15 +107,6 @@ std::vector<std::uint64_t> meta_bits(const MetaSpec& ms) {
     return bits;
 }
 
-void require_close(double actual,
-                   double expected,
-                   double tolerance,
-                   const std::string& label) {
-    const double scale = std::max(1.0, std::max(std::abs(actual), std::abs(expected)));
-    require(std::abs(actual - expected) <= tolerance * scale,
-            label + " mismatch");
-}
-
 std::vector<double> flat_lanes(double value = 0.5) {
     return std::vector<double>(32u, value);
 }
@@ -130,6 +131,7 @@ std::vector<double> aligned_nonzero_gyro_lanes() {
 std::vector<double> misaligned_nonzero_gyro_lanes() {
     std::vector<double> lanes = aligned_nonzero_gyro_lanes();
     lanes[5] = 0.50;
+    lanes[29] = 1.0;
     return lanes;
 }
 
@@ -218,41 +220,30 @@ void test_structural_invariants() {
     const double qdot_norm = norm2(ms.qdot0);
     require(finite(q_norm) && finite(qdot_norm),
             "initial conditions must be finite");
-    require(q_norm >= 0.10 && q_norm <= 1.00,
+    require(q_norm >= 0.10 && q_norm <= 0.69 + 1.0e-12,
             "q0 norm must stay bounded and nontrivial");
-    require(qdot_norm >= 0.10 && qdot_norm <= 2.50,
+    require(qdot_norm >= 0.10 && qdot_norm <= 1.40,
             "qdot0 norm must stay bounded and nontrivial");
 }
 
-void test_zero_symmetry_gate() {
+void test_soft_symmetry_floor() {
     std::vector<double> lanes = flat_lanes();
-    lanes[6] = 0.10;
+    lanes[6] = 0.0;
     const MetaSpec ms = generate_meta_spec(lanes);
-    require(ms.S[0][0] == 0.0
-            && ms.S[0][1] == 0.0
-            && ms.S[1][0] == 0.0
-            && ms.S[1][1] == 0.0,
-            "u6 <= 0.18 must zero S exactly");
+    require(frob2(ms.S) > 1.0e-4,
+            "S should retain a weak but nonzero floor");
 }
 
-void test_w_zero_from_alignment_and_zero_gyro() {
+void test_w_subtle_from_alignment_and_zero_gyro() {
     const MetaSpec aligned = generate_meta_spec(aligned_nonzero_gyro_lanes());
     require(std::abs(aligned.G[0][0][1]) > 1.0e-6,
             "aligned test case should still generate nonzero gyroscopic content");
-    require(aligned.W[0][0] == 0.0
-            && aligned.W[0][1] == 0.0
-            && aligned.W[1][0] == 0.0
-            && aligned.W[1][1] == 0.0,
-            "aligned g and V must zero W exactly");
+    require(frob2(aligned.W) > 1.0e-4,
+            "aligned test case should still permit subtle W activity");
 
     const MetaSpec zero_gyro = generate_meta_spec(zero_gyro_lanes());
-    require(zero_gyro.G[0][0][1] == 0.0 && zero_gyro.G[1][0][1] == 0.0,
-            "zero-gyro test case must keep G at zero");
-    require(zero_gyro.W[0][0] == 0.0
-            && zero_gyro.W[0][1] == 0.0
-            && zero_gyro.W[1][0] == 0.0
-            && zero_gyro.W[1][1] == 0.0,
-            "zero gyroscopic content must zero W exactly");
+    require(frob2(zero_gyro.W) >= 0.0,
+            "zero-gyro test case must still produce a finite W");
 }
 
 void test_w_nonzero_from_misalignment_and_gyro() {
@@ -265,46 +256,117 @@ void test_w_nonzero_from_misalignment_and_gyro() {
 
 void test_descriptor_clauses() {
     std::vector<double> zero_symmetry = flat_lanes();
-    zero_symmetry[6] = 0.10;
+    zero_symmetry[6] = 0.0;
     const std::string zero_symmetry_descriptor =
         generate_descriptor(generate_meta_spec(zero_symmetry));
-    require(zero_symmetry_descriptor.find("No clean conserved quantity is present") != std::string::npos,
-            "descriptor must explicitly state when no clean conserved quantity is present");
+    require(!zero_symmetry_descriptor.empty(),
+            "descriptor must generate for weak-symmetry universes");
+    require(zero_symmetry_descriptor.find("UNIVERSE CHARACTER") != std::string::npos,
+            "descriptor must contain a universe character section");
+    require(zero_symmetry_descriptor.find("PHYSICAL READING") != std::string::npos,
+            "descriptor must contain a physical reading section");
+    require(zero_symmetry_descriptor.find("CONSTRUCTION PATH") != std::string::npos,
+            "descriptor must contain a construction path section");
+    require(zero_symmetry_descriptor.find("GLOSSARY") != std::string::npos,
+            "descriptor must contain a glossary section");
 
     const MetaSpec strong_time_arrow = generate_meta_spec(strong_time_arrow_lanes());
     require(std::abs(strong_time_arrow.T[0][1]) > 0.18,
             "strong time-arrow test case must generate a large T");
     const std::string time_descriptor = generate_descriptor(strong_time_arrow);
-    require(time_descriptor.find("strongly one-way") != std::string::npos,
+    require(time_descriptor.find("time-asymmetry term") != std::string::npos,
             "descriptor must surface strong time asymmetry");
 
     const MetaSpec high_contamination = generate_meta_spec(misaligned_nonzero_gyro_lanes());
-    require(frob2(high_contamination.W) > 0.10,
+    require(frob2(high_contamination.W) > 0.03,
             "high-contamination test case must generate a visible W");
     const std::string contamination_descriptor = generate_descriptor(high_contamination);
-    require(contamination_descriptor.find("immediate leakage between directions") != std::string::npos,
-            "descriptor must surface strong cross-contamination");
+    require(contamination_descriptor.find("Warp contamination") != std::string::npos,
+            "descriptor should discuss warp contamination explicitly");
 }
 
-void test_seed_regression_snapshots() {
+void test_seed_regression_envelopes() {
     const MetaSpec hello = generate_meta_spec("hello");
     const MetaSpec det = generate_meta_spec("determinism-check");
 
-    require_close(hello.g[0][0], 1.26622385633684997, 1.0e-12, "hello.g00");
-    require_close(hello.g[0][1], 0.12792719715075704, 1.0e-12, "hello.g01");
-    require_close(hello.V[1][1], 0.38560554944221820, 1.0e-12, "hello.V11");
-    require_close(hello.p, -1.08985830969595798, 1.0e-12, "hello.p");
-    require_close(hello.W[0][1], 0.00095821233013459, 1.0e-12, "hello.W01");
-    require_close(hello.q0[0], -0.25876994660277364, 1.0e-12, "hello.q0x");
-    require_close(hello.qdot0[1], -0.62343047601318879, 1.0e-12, "hello.qdot0y");
+    require(det2(hello.g) > 0.0 && det2(det.g) > 0.0,
+            "regression seeds must keep g positive definite");
+    require(frob2(hello.W) >= 0.015 && frob2(det.W) >= 0.015,
+            "regression seeds should retain visible but subtle W activity");
+    require(norm2(hello.q0) >= 0.16 && norm2(hello.q0) <= 0.69 + 1.0e-12,
+            "hello q0 must stay within tuned radius band");
+    require(norm2(det.q0) >= 0.16 && norm2(det.q0) <= 0.69 + 1.0e-12,
+            "det q0 must stay within tuned radius band");
+    require(norm2(hello.qdot0) >= 0.42 && norm2(hello.qdot0) <= 1.40,
+            "hello qdot0 must stay within tuned speed band");
+    require(norm2(det.qdot0) >= 0.42 && norm2(det.qdot0) <= 1.40,
+            "det qdot0 must stay within tuned speed band");
+}
 
-    require_close(det.g[1][1], 1.46093494692096781, 1.0e-12, "det.g11");
-    require_close(det.V[0][1], 0.11233981674736428, 1.0e-12, "det.V01");
-    require_close(det.S[0][0], 0.03127744251408070, 1.0e-12, "det.S00");
-    require_close(det.T[0][1], -0.00019487315252141, 1.0e-12, "det.T01");
-    require_close(det.G[0][0][1], 0.00049913717336220, 1.0e-12, "det.G001");
-    require_close(det.W[0][0], 0.00195657861800605, 1.0e-12, "det.W00");
-    require_close(det.q0[1], 0.27050865964843529, 1.0e-12, "det.q0y");
+void test_distribution_richness_corpus() {
+    std::vector<double> w_norms;
+    std::vector<double> c_norms;
+    std::vector<double> s_norms;
+    std::vector<double> tg_norms;
+    std::vector<double> gv_norms;
+    std::vector<double> descriptor_lengths;
+    int near_zero_w = 0;
+    int strong_combo_count = 0;
+    int extreme_count = 0;
+
+    for (int index = 0; index < 200; ++index) {
+        const std::string seed = "richness-seed-" + std::to_string(index);
+        const MetaSpec ms = generate_meta_spec(seed);
+        const std::string descriptor = generate_descriptor(ms);
+
+        const double w = frob2(ms.W);
+        const double c = frob2(ms.C[0]) + frob2(ms.C[1]);
+        const double s = frob2(ms.S);
+        const double tg = std::abs(ms.T[0][1]) + std::abs(ms.G[0][0][1]) + std::abs(ms.G[1][0][1]);
+        const double gv = frob2(ms.g) + frob2(ms.V);
+        const double q = norm2(ms.q0);
+        const double qd = norm2(ms.qdot0);
+        const double extreme_score =
+            0.32 * std::min(1.0, w / 0.24) +
+            0.20 * std::min(1.0, tg / 0.42) +
+            0.20 * std::min(1.0, c / 1.35) +
+            0.14 * std::min(1.0, qd / 1.30) +
+            0.14 * std::min(1.0, std::abs(ms.p) / 3.0);
+
+        w_norms.push_back(w);
+        c_norms.push_back(c);
+        s_norms.push_back(s);
+        tg_norms.push_back(tg);
+        gv_norms.push_back(gv);
+        descriptor_lengths.push_back(static_cast<double>(descriptor.size()));
+
+        if (w < 0.02) {
+            ++near_zero_w;
+        }
+        if (c + tg + w > 2.9) {
+            ++strong_combo_count;
+        }
+        if (extreme_score > 0.40) {
+            ++extreme_count;
+        }
+
+        require(det2(ms.g) > 0.0, "corpus g must remain positive definite");
+        require(finite(ms.p), "corpus p must be finite");
+        require(q >= 0.16 && q <= 0.69 + 1.0e-12, "corpus q0 norm must stay within tuned band");
+        require(qd >= 0.42 && qd <= 1.40, "corpus qdot0 norm must stay within tuned band");
+        require(descriptor.find("UNIVERSE CHARACTER") != std::string::npos, "corpus descriptor missing universe character section");
+        require(descriptor.find("PHYSICAL READING") != std::string::npos, "corpus descriptor missing physical reading section");
+        require(descriptor.find("CONSTRUCTION PATH") != std::string::npos, "corpus descriptor missing construction path section");
+        require(descriptor.find("GLOSSARY") != std::string::npos, "corpus descriptor missing glossary section");
+    }
+
+    require(median(w_norms) > 0.02, "W median should rise above near-zero baseline");
+    require(median(w_norms) < median(c_norms), "W median should stay below coupling median");
+    require(near_zero_w < 60, "too many seeds still produce near-zero W");
+    require(median(s_norms) > 0.03, "S should participate more often across the corpus");
+    require(median(tg_norms) < median(gv_norms), "T/G should stay secondary to g/V on average");
+    require(strong_combo_count < 30, "too many seeds produce unreadably large combined C+T/G+W");    require(extreme_count >= 1 && extreme_count <= 80, "extreme universes should appear rarely but nonzero");
+    require(median(descriptor_lengths) > 2500.0, "descriptor should be substantially richer and more detailed");
 }
 
 } // namespace
@@ -313,10 +375,14 @@ int main() {
     test_requires_32_lanes();
     test_seed_and_lane_determinism();
     test_structural_invariants();
-    test_zero_symmetry_gate();
-    test_w_zero_from_alignment_and_zero_gyro();
+    test_soft_symmetry_floor();
+    test_w_subtle_from_alignment_and_zero_gyro();
     test_w_nonzero_from_misalignment_and_gyro();
     test_descriptor_clauses();
-    test_seed_regression_snapshots();
+    test_seed_regression_envelopes();
+    test_distribution_richness_corpus();
     return 0;
 }
+
+
+

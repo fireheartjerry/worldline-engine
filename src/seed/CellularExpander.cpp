@@ -162,6 +162,15 @@ ByteArray step_ca(const ByteArray& current,
     return next;
 }
 
+void push_checkpoint(CellularExpansionTrace& trace,
+                     std::size_t generation,
+                     const ByteArray& state) {
+    CellularCheckpoint checkpoint;
+    checkpoint.generation = generation;
+    checkpoint.cells.assign(state.begin(), state.end());
+    trace.checkpoints.push_back(checkpoint);
+}
+
 } // namespace
 
 CellularExpansionTrace expand_with_trace(const std::string& input) {
@@ -171,11 +180,24 @@ CellularExpansionTrace expand_with_trace(const std::string& input) {
     ByteArray current{};
     ByteArray previous{};
     fold_input(input, current, previous);
+    push_checkpoint(trace, 0u, current);
+
+    constexpr std::array<std::size_t, 8> kCheckpointGenerations{{
+        1u, 2u, 4u, 8u, 16u, 32u, 64u, 128u
+    }};
+    std::size_t checkpoint_index = 0u;
 
     for (std::size_t generation = 0; generation < kMixingGenerations; ++generation) {
         const ByteArray next = step_ca(current, previous);
         previous = current;
         current = next;
+
+        const std::size_t completed_generation = generation + 1u;
+        if (checkpoint_index < kCheckpointGenerations.size()
+            && completed_generation == kCheckpointGenerations[checkpoint_index]) {
+            push_checkpoint(trace, completed_generation, current);
+            ++checkpoint_index;
+        }
     }
 
     trace.expanded.assign(current.begin(), current.end());

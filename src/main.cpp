@@ -2,12 +2,9 @@
 #include "app/AppRuntime.hpp"
 #include "renderer/Renderer.hpp"
 #include "ui/MainMenuScreen.hpp"
+#include "ui/SeededUniverseScreen.hpp"
 #include "ui/SettingsModal.hpp"
 #include "ui/SimulationDock.hpp"
-
-#include "seed/SeedDebug.hpp"
-#include <iostream>
-#include <fstream>
 
 #include <algorithm>
 
@@ -16,29 +13,6 @@ int main() {
     InitWindow(1480, 920, "Worldline Double Pendulum Lab");
     SetTargetFPS(60);
     init_ui_font();
-
-    // --- SEED DEBUG BLOCK - remove when done ---
-    {
-        std::ofstream log("seed_debug.txt");
-        
-        // basic output
-        log << "=== OUTPUT: hello ===\n";
-        print_output(generate("hello"), log);
-        
-        // avalanche test
-        log << "\n=== AVALANCHE: hello vs hellp ===\n";
-        print_avalanche_report("hello", "hellp", log);
-        
-        // full trace
-        log << "\n=== FULL TRACE: hello ===\n";
-        const auto expanded = expand("hello");
-        const auto machine_trace = compress_with_trace(expanded);
-        print_register_state(machine_trace, log);
-        print_mutation_trace(machine_trace, log);
-        
-        log.close();
-    }
-    // --- END SEED DEBUG BLOCK ---
 
     Renderer renderer(GetScreenWidth(), GetScreenHeight());
     AppState app;
@@ -116,7 +90,7 @@ int main() {
         if (app.ui.screen == AppScreen::MAIN_MENU) {
             menu_result = draw_main_menu_screen(canvas);
         } else if (app.ui.screen == AppScreen::SEEDED_UNIVERSE) {
-            back_to_menu = draw_seeded_universe_screen(canvas);
+            back_to_menu = draw_seeded_universe_screen(app, canvas);
         } else {
             renderer.draw_scene(app.simulation,
                                 display_layout,

@@ -1,8 +1,12 @@
 #pragma once
+#include "../seed/CellularExpander.hpp"
+#include "../seed/MetaSpec.hpp"
+#include "../seed/SeedMachine.hpp"
 #include "../physics/Simulation.hpp"
 #include "../renderer/Trail.hpp"
 #include <array>
 #include <string>
+#include <vector>
 
 constexpr std::size_t APP_TRAIL_CAPACITY = 65536;
 constexpr double APP_DEG_TO_RAD = 3.14159265358979323846 / 180.0;
@@ -147,16 +151,72 @@ struct VisualDraft {
     OverlayPreset preset = OverlayPreset::CUSTOM;
 };
 
+struct SeededUniverseResult {
+    bool ready = false;
+    std::string seed;
+    CellularExpansionTrace expansion_trace;
+    SeedMachineTrace machine_trace;
+    std::vector<double> lanes;
+    MetaSpec meta_spec{};
+    std::string descriptor;
+    std::string error;
+};
+
+enum class SeededInfoTopic {
+    NONE,
+    COMMAND_DECK,
+    PIPELINE,
+    EXPANSION,
+    MACHINE,
+    LANES,
+    REGISTERS,
+    ORBIT,
+    TENSORS,
+    DESCRIPTOR
+};
+
+enum class SeededFocusKind {
+    NONE,
+    CHECKPOINT,
+    MUTATION,
+    LANE,
+    REGISTER_SLOT,
+    STAGE,
+    TENSOR
+};
+
+struct SeededUniverseUiState {
+    std::string seed_input = "worldline";
+    bool input_active = false;
+    bool input_select_all = false;
+    bool debug_enabled = true;
+    bool scrub_active = false;
+    bool info_ignore_mouse_until_release = false;
+    bool descriptor_hovered = false;
+    float playback_time = 0.0f;
+    float body_scroll = 0.0f;
+    float descriptor_scroll = 0.0f;
+    float info_modal_scroll = 0.0f;
+    float backspace_repeat_timer = 0.0f;
+    SeededInfoTopic info_topic = SeededInfoTopic::NONE;
+    SeededFocusKind focus_kind = SeededFocusKind::LANE;
+    int focus_index = 0;
+    SeededUniverseResult result;
+};
+
 struct UiState {
     AppScreen screen = AppScreen::MAIN_MENU;
     FieldId active_field = FieldId::NONE;
     FieldId active_slider = FieldId::NONE;
     std::string buffer;
+    bool buffer_select_all = false;
+    float backspace_repeat_timer = 0.0f;
     int drag_handle = 0;
     float panel_scroll = 0.0f;
     bool slider_wheel_used = false;
     bool settings_open = false;
     std::array<bool, static_cast<std::size_t>(PanelSection::COUNT)> collapsed_sections{};
+    SeededUniverseUiState seeded;
 };
 
 inline std::array<bool, static_cast<std::size_t>(PanelSection::COUNT)> default_collapsed_sections() {

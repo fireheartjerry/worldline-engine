@@ -7,8 +7,14 @@
 
 static constexpr std::size_t SEED_EXPANDED_SIZE = 512;
 
+struct CellularCheckpoint {
+    std::size_t generation = 0;
+    std::vector<std::uint8_t> cells;
+};
+
 struct CellularExpansionTrace {
     std::vector<std::uint8_t> expanded;
+    std::vector<CellularCheckpoint> checkpoints;
 };
 
 std::vector<std::uint8_t> expand(const std::string& input);

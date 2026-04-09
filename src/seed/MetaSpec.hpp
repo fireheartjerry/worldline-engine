@@ -12,6 +12,8 @@ struct MetaSpec {
     double G[2][2][2]{};
     double W[2][2]{};
     double p = 0.0;
+    bool p_dynamic = false;   // ADD
+    double p_beta = 0.0;     // ADD — self-mod rate, used by integrator
     double q0[2]{};
     double qdot0[2]{};
 };
