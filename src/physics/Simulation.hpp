@@ -7,6 +7,7 @@
 #include "../math/Integrators.hpp"
 #include "../math/Vec2.hpp"
 #include <cmath>
+#include <cstring>
 
 class Simulation {
 public:
@@ -59,7 +60,20 @@ public:
     void reset(PendulumState initial, PendulumParams p) {
         state = initial;
         params = p;
-        rope = rope_from_state(initial, params);
+        elapsed_time = 0.0;
+        if (params.connector_mode == ConnectorMode::ROPE) {
+            rope = rope_from_state(initial, params);
+        }
+        mark_cache_dirty();
+    }
+
+    // Hot-path variant: re-pins the physics state without copying the 296-byte
+    // PendulumParams. Use instead of reset() when params are unchanged.
+    void update_state(PendulumState new_state) {
+        state = new_state;
+        if (params.connector_mode == ConnectorMode::ROPE) {
+            rope = rope_from_state(new_state, params);
+        }
         mark_cache_dirty();
     }
 
@@ -75,6 +89,7 @@ public:
         } else {
             step_rope(dt);
         }
+        elapsed_time += dt;
         mark_cache_dirty();
     }
 
@@ -219,6 +234,7 @@ public:
 
 private:
     RopeState rope{};
+    double elapsed_time = 0.0;
     mutable bool cache_valid = false;
     mutable PendulumState cached_state_snapshot{};
     mutable RopeState cached_rope_snapshot{};
@@ -228,93 +244,26 @@ private:
 
     void mark_cache_dirty() { cache_valid = false; }
 
-    static bool same_vec(Vec2 a, Vec2 b) {
-        return a.x == b.x && a.y == b.y;
-    }
-
-    static bool same_drag(const DragCoefficients& a,
-                          const DragCoefficients& b) {
-        return a.linear == b.linear && a.quadratic == b.quadratic;
-    }
-
-    static bool same_directional_drag(const DirectionalDragCoefficients& a,
-                                      const DirectionalDragCoefficients& b) {
-        return same_drag(a.axial, b.axial) && same_drag(a.normal, b.normal);
-    }
-
-    static bool same_joint_resistance(const JointResistance& a,
-                                      const JointResistance& b) {
-        return a.viscous == b.viscous
-            && a.quadratic == b.quadratic
-            && a.coulomb == b.coulomb;
-    }
-
-    static bool same_flow_field(const FlowFieldParams& a,
-                                const FlowFieldParams& b) {
-        return a.wind_x == b.wind_x
-            && a.wind_y == b.wind_y
-            && a.shear_x == b.shear_x
-            && a.shear_y == b.shear_y
-            && a.swirl == b.swirl;
-    }
-
-    static bool same_state(const PendulumState& a,
-                           const PendulumState& b) {
-        return a.theta1 == b.theta1
-            && a.theta2 == b.theta2
-            && a.omega1 == b.omega1
-            && a.omega2 == b.omega2;
-    }
-
-    static bool same_rope(const RopeState& a,
-                          const RopeState& b) {
-        return same_vec(a.bob1, b.bob1)
-            && same_vec(a.bob2, b.bob2)
-            && same_vec(a.vel1, b.vel1)
-            && same_vec(a.vel2, b.vel2)
-            && a.taut1 == b.taut1
-            && a.taut2 == b.taut2;
-    }
-
-    static bool same_params(const PendulumParams& a,
-                            const PendulumParams& b) {
-        return a.l1 == b.l1
-            && a.l2 == b.l2
-            && a.m1 == b.m1
-            && a.m2 == b.m2
-            && a.connector1_mass == b.connector1_mass
-            && a.connector2_mass == b.connector2_mass
-            && a.g == b.g
-            && same_drag(a.bob1_drag, b.bob1_drag)
-            && same_drag(a.bob2_drag, b.bob2_drag)
-            && same_directional_drag(a.connector1_drag, b.connector1_drag)
-            && same_directional_drag(a.connector2_drag, b.connector2_drag)
-            && same_joint_resistance(a.pivot_resistance, b.pivot_resistance)
-            && same_joint_resistance(a.elbow_resistance, b.elbow_resistance)
-            && same_flow_field(a.flow_field, b.flow_field)
-            && a.adaptive_tolerance == b.adaptive_tolerance
-            && a.min_substep == b.min_substep
-            && a.max_refinements == b.max_refinements
-            && a.connector_mode == b.connector_mode
-            && a.gravity_exponent == b.gravity_exponent;
-    }
-
     bool cache_matches_state() const {
+        // memcmp is safe: all three types are trivially-copyable POD with no
+        // uninitialized padding (value-initialized at construction, snapshots
+        // written via memcpy which copies padding bytes too).
+        // Also fixes a latent bug: the old same_flow_field() omitted gust_x/y/frequency.
         return cache_valid
-            && same_state(cached_state_snapshot, state)
-            && same_rope(cached_rope_snapshot, rope)
-            && same_params(cached_params_snapshot, params);
+            && !std::memcmp(&cached_state_snapshot, &state, sizeof(PendulumState))
+            && !std::memcmp(&cached_rope_snapshot,  &rope,  sizeof(RopeState))
+            && !std::memcmp(&cached_params_snapshot, &params, sizeof(PendulumParams));
     }
 
     double compute_dissipation_power_uncached() const {
         if (params.connector_mode == ConnectorMode::RIGID) {
-            const GeneralizedForces forces = rigid_resistive_forces(state, params);
+            const GeneralizedForces forces = rigid_resistive_forces(state, params, elapsed_time);
             return forces.q1 * state.omega1 + forces.q2 * state.omega2;
         }
 
         Vec2 force1{};
         Vec2 force2{};
-        accumulate_rope_external_forces(force1, force2);
+        accumulate_rope_external_forces(force1, force2, elapsed_time);
         return force1.dot(rope.vel1) + force2.dot(rope.vel2);
     }
 
@@ -323,9 +272,9 @@ private:
             ? rigid_diagnostics()
             : rope_diagnostics();
         cached_dissipation_power = compute_dissipation_power_uncached();
-        cached_state_snapshot = state;
-        cached_rope_snapshot = rope;
-        cached_params_snapshot = params;
+        std::memcpy(&cached_state_snapshot, &state,  sizeof(PendulumState));
+        std::memcpy(&cached_rope_snapshot,  &rope,   sizeof(RopeState));
+        std::memcpy(&cached_params_snapshot, &params, sizeof(PendulumParams));
         cache_valid = true;
     }
 
@@ -390,27 +339,12 @@ private:
                                        Vec2 end_velocity,
                                        Vec2 axis_hint,
                                        const DirectionalDragCoefficients& drag,
-                                       const FlowFieldParams& flow_field) {
-        Vec2 resultant{};
-        if (!drag_active(drag)) {
-            return resultant;
-        }
-
-        const Vec2 delta_position = end_position - start_position;
-        const Vec2 delta_velocity = end_velocity - start_velocity;
-        const double segment_length = delta_position.length();
-        if (segment_length <= 1e-9) {
-            return resultant;
-        }
-        integrate_unit_interval_gauss5([&](double s_unit, double weight) {
-            const Vec2 position = start_position + delta_position * s_unit;
-            const Vec2 velocity = start_velocity + delta_velocity * s_unit;
-            resultant += anisotropic_drag_force(
-                velocity - flow_velocity_at(position, flow_field),
-                axis_hint,
-                drag) * (weight * segment_length);
-        });
-        return resultant;
+                                       const FlowFieldParams& flow_field,
+                                       double time = 0.0) {
+        const EndpointForces f = segment_drag_forces(start_position, end_position,
+                                                     start_velocity, end_velocity,
+                                                     axis_hint, drag, flow_field, time);
+        return f.first + f.second;
     }
 
     static EndpointForces segment_drag_forces(Vec2 start_position,
@@ -419,7 +353,8 @@ private:
                                              Vec2 end_velocity,
                                              Vec2 axis_hint,
                                              const DirectionalDragCoefficients& drag,
-                                             const FlowFieldParams& flow_field) {
+                                             const FlowFieldParams& flow_field,
+                                             double time = 0.0) {
         EndpointForces forces;
         if (!drag_active(drag)) {
             return forces;
@@ -436,7 +371,7 @@ private:
             const Vec2 velocity = start_velocity + delta_velocity * s_unit;
             const Vec2 density_force =
                 anisotropic_drag_force(
-                    velocity - flow_velocity_at(position, flow_field),
+                    velocity - flow_velocity_at(position, flow_field, time),
                     axis_hint,
                     drag);
             const double line_weight = weight * segment_length;
@@ -446,12 +381,13 @@ private:
         return forces;
     }
 
-    void accumulate_rope_external_forces(Vec2& force1, Vec2& force2) const {
+    void accumulate_rope_external_forces(Vec2& force1, Vec2& force2,
+                                         double time = 0.0) const {
         force1 += drag_force(
-            rope.vel1 - flow_velocity_at(rope.bob1, params.flow_field),
+            rope.vel1 - flow_velocity_at(rope.bob1, params.flow_field, time),
             params.bob1_drag);
         force2 += drag_force(
-            rope.vel2 - flow_velocity_at(rope.bob2, params.flow_field),
+            rope.vel2 - flow_velocity_at(rope.bob2, params.flow_field, time),
             params.bob2_drag);
 
         if (rope.taut1) {
@@ -462,7 +398,8 @@ private:
                                     rope.vel1,
                                     rope.bob1,
                                     params.connector1_drag,
-                                    params.flow_field);
+                                    params.flow_field,
+                                    time);
             force1 += connector1.second;
         }
 
@@ -474,7 +411,8 @@ private:
                                     rope.vel2,
                                     rope.bob2 - rope.bob1,
                                     params.connector2_drag,
-                                    params.flow_field);
+                                    params.flow_field,
+                                    time);
             force1 += connector2.first;
             force2 += connector2.second;
         }
@@ -493,9 +431,9 @@ private:
         const Vec2 t2 = tangent_from_angle(params.l2, state.theta2);
         const Vec2 vel1 = t1 * state.omega1;
         const Vec2 vel2 = vel1 + t2 * state.omega2;
-        const Vec2 fluid1 = flow_velocity_at(r1, params.flow_field);
-        const Vec2 fluid2 = flow_velocity_at(b2, params.flow_field);
-        const PendulumState deriv = pendulum_derivatives(state, params);
+        const Vec2 fluid1 = flow_velocity_at(r1, params.flow_field, elapsed_time);
+        const Vec2 fluid2 = flow_velocity_at(b2, params.flow_field, elapsed_time);
+        const PendulumState deriv = pendulum_derivatives(state, params, elapsed_time);
         const Vec2 acc1 = rigid_point_acceleration(r1, t1, state.omega1, deriv.omega1);
         const Vec2 acc2 = acc1 + rigid_point_acceleration(r2, t2, state.omega2, deriv.omega2);
 
@@ -526,7 +464,8 @@ private:
                                    vel1,
                                    r1,
                                    params.connector1_drag,
-                                   params.flow_field);
+                                   params.flow_field,
+                                   elapsed_time);
         diagnostics.connector1.active = drag_active(params.connector1_drag);
         diagnostics.connector1.taut = true;
 
@@ -539,7 +478,8 @@ private:
                                    vel2,
                                    r2,
                                    params.connector2_drag,
-                                   params.flow_field);
+                                   params.flow_field,
+                                   elapsed_time);
         diagnostics.connector2.active = drag_active(params.connector2_drag);
         diagnostics.connector2.taut = true;
         diagnostics.pivot_torque =
@@ -559,14 +499,38 @@ private:
         VisualDiagnostics diagnostics;
 
         const Vec2 bob_drag1 = drag_force(
-            rope.vel1 - flow_velocity_at(rope.bob1, params.flow_field),
+            rope.vel1 - flow_velocity_at(rope.bob1, params.flow_field, elapsed_time),
             params.bob1_drag);
         const Vec2 bob_drag2 = drag_force(
-            rope.vel2 - flow_velocity_at(rope.bob2, params.flow_field),
+            rope.vel2 - flow_velocity_at(rope.bob2, params.flow_field, elapsed_time),
             params.bob2_drag);
-        Vec2 external1{};
-        Vec2 external2{};
-        accumulate_rope_external_forces(external1, external2);
+
+        // Compute connector drag once via segment_drag_forces and reuse the result
+        // for both the physics (external force accumulation) and the display overlay.
+        // Eliminates two redundant Gauss5 calls that segment_drag_resultant would add.
+        Vec2 external1 = bob_drag1;
+        Vec2 external2 = bob_drag2;
+        Vec2 connector1_resultant{};
+        Vec2 connector2_resultant{};
+
+        if (rope.taut1) {
+            const EndpointForces c1 = segment_drag_forces({}, rope.bob1, {}, rope.vel1,
+                                                           rope.bob1, params.connector1_drag,
+                                                           params.flow_field, elapsed_time);
+            external1 += c1.second;
+            connector1_resultant = c1.first + c1.second;
+        }
+        if (rope.taut2) {
+            const Vec2 rel2 = rope.bob2 - rope.bob1;
+            const EndpointForces c2 = segment_drag_forces(rope.bob1, rope.bob2,
+                                                           rope.vel1, rope.vel2,
+                                                           rel2,
+                                                           params.connector2_drag,
+                                                           params.flow_field, elapsed_time);
+            external1 += c2.first;
+            external2 += c2.second;
+            connector2_resultant = c2.first + c2.second;
+        }
 
         const Vec2 gravity1 = {0.0, params.m1 * params.g};
         const Vec2 gravity2 = {0.0, params.m2 * params.g};
@@ -596,28 +560,14 @@ private:
 
         diagnostics.connector1.position = rope.bob1 * 0.5;
         diagnostics.connector1.direction = rope.bob1;
-        diagnostics.connector1.drag_force =
-            rope.taut1 ? segment_drag_resultant({},
-                                                rope.bob1,
-                                                {},
-                                                rope.vel1,
-                                                rope.bob1,
-                                                params.connector1_drag,
-                                                params.flow_field) : Vec2{};
+        diagnostics.connector1.drag_force = connector1_resultant;
         diagnostics.connector1.active = rope.taut1 && drag_active(params.connector1_drag);
         diagnostics.connector1.taut = rope.taut1;
 
         const Vec2 rel = rope.bob2 - rope.bob1;
         diagnostics.connector2.position = rope.bob1 + rel * 0.5;
         diagnostics.connector2.direction = rel;
-        diagnostics.connector2.drag_force =
-            rope.taut2 ? segment_drag_resultant(rope.bob1,
-                                                rope.bob2,
-                                                rope.vel1,
-                                                rope.vel2,
-                                                rel,
-                                                params.connector2_drag,
-                                                params.flow_field) : Vec2{};
+        diagnostics.connector2.drag_force = connector2_resultant;
         diagnostics.connector2.active = rope.taut2 && drag_active(params.connector2_drag);
         diagnostics.connector2.taut = rope.taut2;
 
@@ -625,38 +575,40 @@ private:
     }
 
     void step_rigid_once(double dt) {
+        const double t = elapsed_time;
         state = Integrators::rk4<PendulumState, PendulumParams>(
-            state, params, dt, pendulum_derivatives);
+            state, params, dt,
+            [t](const PendulumState& s, const PendulumParams& p) {
+                return pendulum_derivatives(s, p, t);
+            });
     }
 
     static double rigid_state_error(const PendulumState& coarse,
                                     const PendulumState& fine) {
-        const double angle1 = std::abs(fine.theta1 - coarse.theta1)
-            / (1.0 + std::abs(fine.theta1));
-        const double angle2 = std::abs(fine.theta2 - coarse.theta2)
-            / (1.0 + std::abs(fine.theta2));
-        const double omega1 = std::abs(fine.omega1 - coarse.omega1)
-            / (1.0 + std::abs(fine.omega1));
-        const double omega2 = std::abs(fine.omega2 - coarse.omega2)
-            / (1.0 + std::abs(fine.omega2));
-        return std::max(std::max(angle1, angle2), std::max(omega1, omega2));
+        auto rel = [](double a, double b) {
+            return std::abs(a - b) / (1.0 + std::max(std::abs(a), std::abs(b)));
+        };
+        return std::max(std::max(rel(coarse.theta1, fine.theta1),
+                                 rel(coarse.theta2, fine.theta2)),
+                        std::max(rel(coarse.omega1, fine.omega1),
+                                 rel(coarse.omega2, fine.omega2)));
     }
 
-    static double rope_state_error(const Simulation& coarse,
-                                   const Simulation& fine) {
+    static double rope_state_error(const RopeState& coarse,
+                                   const RopeState& fine) {
         auto rel = [](double a, double b) {
             return std::abs(a - b) / (1.0 + std::max(std::abs(a), std::abs(b)));
         };
 
         double error = 0.0;
-        error = std::max(error, rel(coarse.rope.bob1.x, fine.rope.bob1.x));
-        error = std::max(error, rel(coarse.rope.bob1.y, fine.rope.bob1.y));
-        error = std::max(error, rel(coarse.rope.bob2.x, fine.rope.bob2.x));
-        error = std::max(error, rel(coarse.rope.bob2.y, fine.rope.bob2.y));
-        error = std::max(error, rel(coarse.rope.vel1.x, fine.rope.vel1.x));
-        error = std::max(error, rel(coarse.rope.vel1.y, fine.rope.vel1.y));
-        error = std::max(error, rel(coarse.rope.vel2.x, fine.rope.vel2.x));
-        error = std::max(error, rel(coarse.rope.vel2.y, fine.rope.vel2.y));
+        error = std::max(error, rel(coarse.bob1.x, fine.bob1.x));
+        error = std::max(error, rel(coarse.bob1.y, fine.bob1.y));
+        error = std::max(error, rel(coarse.bob2.x, fine.bob2.x));
+        error = std::max(error, rel(coarse.bob2.y, fine.bob2.y));
+        error = std::max(error, rel(coarse.vel1.x, fine.vel1.x));
+        error = std::max(error, rel(coarse.vel1.y, fine.vel1.y));
+        error = std::max(error, rel(coarse.vel2.x, fine.vel2.x));
+        error = std::max(error, rel(coarse.vel2.y, fine.vel2.y));
         return error;
     }
 
@@ -666,18 +618,22 @@ private:
             return;
         }
 
-        Simulation coarse = *this;
-        coarse.step_rigid_once(dt);
+        // Save only the 32-byte physics state — not the full Simulation (cache, rope, etc.)
+        const PendulumState s0 = state;
 
-        Simulation fine = *this;
-        fine.step_rigid_once(dt * 0.5);
-        fine.step_rigid_once(dt * 0.5);
+        step_rigid_once(dt);
+        const PendulumState s_coarse = state;
 
-        if (rigid_state_error(coarse.state, fine.state) <= params.adaptive_tolerance) {
-            *this = fine;
+        state = s0;
+        step_rigid_once(dt * 0.5);
+        step_rigid_once(dt * 0.5);
+        // state now holds the fine result
+
+        if (rigid_state_error(s_coarse, state) <= params.adaptive_tolerance) {
             return;
         }
 
+        state = s0;
         step_rigid_adaptive(dt * 0.5, depth + 1);
         step_rigid_adaptive(dt * 0.5, depth + 1);
     }
@@ -688,18 +644,23 @@ private:
             return;
         }
 
-        Simulation coarse = *this;
-        coarse.step_rope(dt);
+        // Save only mutable physics state (~82 bytes) — not the full Simulation
+        const RopeState r0 = rope;
+        const PendulumState s0 = state;
 
-        Simulation fine = *this;
-        fine.step_rope(dt * 0.5);
-        fine.step_rope(dt * 0.5);
+        step_rope(dt);
+        const RopeState r_coarse = rope;
 
-        if (rope_state_error(coarse, fine) <= params.adaptive_tolerance) {
-            *this = fine;
+        rope = r0; state = s0;
+        step_rope(dt * 0.5);
+        step_rope(dt * 0.5);
+        // rope + state now hold the fine result
+
+        if (rope_state_error(r_coarse, rope) <= params.adaptive_tolerance) {
             return;
         }
 
+        rope = r0; state = s0;
         step_rope_adaptive(dt * 0.5, depth + 1);
         step_rope_adaptive(dt * 0.5, depth + 1);
     }
@@ -723,7 +684,7 @@ private:
         const Vec2 gravity = {0.0, params.g};
         Vec2 force1{};
         Vec2 force2{};
-        accumulate_rope_external_forces(force1, force2);
+        accumulate_rope_external_forces(force1, force2, elapsed_time);
 
         Vec2 accel1 = gravity + force1 / params.m1;
         Vec2 accel2 = gravity + force2 / params.m2;

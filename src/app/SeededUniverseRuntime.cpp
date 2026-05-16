@@ -11,12 +11,6 @@
 
 namespace {
 
-std::string format_number(double value, int precision = 3) {
-    char buffer[64];
-    std::snprintf(buffer, sizeof(buffer), "%.*f", precision, value);
-    return std::string(buffer);
-}
-
 SeededLawPreview build_law_preview(const MetaSpec& meta_spec) {
     SeededLawPreview preview;
     LawSpec law(meta_spec);
@@ -66,33 +60,31 @@ SeededLawPreview build_law_preview(const MetaSpec& meta_spec) {
 
 std::string law_readout(const MetaSpec& meta_spec,
                         const SeededLawPreview& preview) {
-    std::string out = "LAW WEAVE\n";
+    std::string out;
+    out.reserve(768);
+    out  = "LAW WEAVE\n";
     out += "LawSpec turns the tensor vault into a bounded phase flow. ";
     out += meta_spec.p_dynamic
         ? "Here the exponent is allowed to breathe with angular momentum before it is pulled back toward its seed. "
         : "Here the exponent remains pinned to its seeded value, so the flow is structurally stable rather than self-adjusting. ";
 
-    out += "The construction-time potential gain is ";
-    out += format_number(preview.linear_gain, 2);
-    out += ", the observed acceleration peak in the preview is ";
-    out += format_number(preview.max_accel, 2);
-    out += " against a ceiling of ";
-    out += format_number(preview.accel_ceiling, 2);
-    out += ". ";
-
-    out += "The symmetry split is carried explicitly: additive ";
-    out += format_number(meta_spec.s_a, 2);
-    out += ", filter ";
-    out += format_number(meta_spec.s_b, 2);
-    out += ", torque ";
-    out += format_number(meta_spec.s_c, 2);
-    out += ". ";
-
-    out += "Across the preview, the orbit radius averages ";
-    out += format_number(preview.radius_mean, 2);
-    out += " and the handedness bias is ";
-    out += format_number(preview.handedness, 2);
-    out += ".";
+    // Single snprintf into a stack buffer: eliminates 8 format_number temp strings
+    // and all intermediate += reallocations.
+    char buf[512];
+    const int n = std::snprintf(buf, sizeof(buf),
+        "The construction-time potential gain is %.2f"
+        ", the observed acceleration peak in the preview is %.2f"
+        " against a ceiling of %.2f. "
+        "The symmetry split is carried explicitly: additive %.2f"
+        ", filter %.2f, torque %.2f. "
+        "Across the preview, the orbit radius averages %.2f"
+        " and the handedness bias is %.2f.",
+        preview.linear_gain, preview.max_accel, preview.accel_ceiling,
+        meta_spec.s_a, meta_spec.s_b, meta_spec.s_c,
+        preview.radius_mean, preview.handedness);
+    if (n > 0 && n < static_cast<int>(sizeof(buf))) {
+        out.append(buf, static_cast<std::size_t>(n));
+    }
     return out;
 }
 
@@ -130,9 +122,12 @@ void record_history_sample(SeededUniverseRuntime& runtime, bool force = false) {
         return;
     }
 
-    runtime.history.push_back(runtime.current_snapshot());
+    constexpr std::size_t kHistoryMax = 54'000;  // ~6 min cap; above this, recording stops
+    if (runtime.history.size() < kHistoryMax) {
+        runtime.history.push_back(runtime.current_snapshot());
+        runtime.active_snapshot_index = static_cast<int>(runtime.history.size()) - 1;
+    }
     runtime.history_sample_timer = 0.0;
-    runtime.active_snapshot_index = static_cast<int>(runtime.history.size()) - 1;
 }
 
 void reset_seeded_ui_state(SeededUniverseUiState& state) {
@@ -200,6 +195,11 @@ void SeededUniverseRuntime::restart() {
     history_sample_timer = 0.0;
     history.clear();
     markers.clear();
+    // Pre-allocate ~2 min of history at 150 samples/s real-time; no-op on subsequent restarts.
+    constexpr std::size_t kHistoryReserve = 18'000;
+    constexpr std::size_t kMarkersReserve = 64;
+    history.reserve(kHistoryReserve);
+    markers.reserve(kMarkersReserve);
     scrubbing = false;
     active_snapshot_index = -1;
     record_trail_sample(*this, 0.0, true);
@@ -239,6 +239,9 @@ void SeededUniverseRuntime::restore_markers(const std::vector<TimelineMarker>& r
 }
 
 void SeededUniverseRuntime::pin_marker(const std::string& label) {
+    if (active_snapshot_index < 0) {
+        return;
+    }
     TimelineMarker marker;
     marker.label = label;
     marker.time = elapsed_time;
@@ -272,6 +275,8 @@ int SeededUniverseRuntime::step(float frame_time) {
     constexpr float kTimeScale = 2.5f;
     constexpr double kSmoothTau = 0.025; // 25 ms smoothing time constant for angles
 
+    // Hoist constant exp() out of the loop — APP_PHYS_DT and kSmoothTau never change.
+    const double alpha = 1.0 - std::exp(-APP_PHYS_DT / kSmoothTau);
     int new_samples = 0;
     int step_count = 0;
     accumulator += static_cast<double>(kTimeScale * std::min(frame_time, 0.033f));
@@ -281,13 +286,13 @@ int SeededUniverseRuntime::step(float frame_time) {
 
         // Exponential smoothing on angles to kill high-frequency jitter while preserving
         // the large-scale chaotic motion. Omegas are left raw so trail colour stays reactive.
-        const double alpha = 1.0 - std::exp(-APP_PHYS_DT / kSmoothTau);
         visual_smoothed.theta1 += alpha * (observed.theta1 - visual_smoothed.theta1);
         visual_smoothed.theta2 += alpha * (observed.theta2 - visual_smoothed.theta2);
         visual_smoothed.omega1 = observed.omega1;
         visual_smoothed.omega2 = observed.omega2;
 
-        visual_simulation.reset(visual_smoothed, visual_simulation.params);
+        // update_state: pins physics state without copying the 296-byte PendulumParams.
+        visual_simulation.update_state(visual_smoothed);
         new_samples += record_trail_sample(*this, APP_PHYS_DT);
         accumulator -= APP_PHYS_DT;
         elapsed_time += APP_PHYS_DT;

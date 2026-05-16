@@ -5,7 +5,11 @@
       "Bash(cmake --build build --config Release -- VERBOSE=1)",
       "Bash(cmake --build build --config Release --target physics_verification)",
       "Bash(cmake --preset default)",
-      "Bash(cmake --build build --parallel)"
+      "Bash(cmake --build build --parallel)",
+      "Bash(cmake --build build)",
+      "Bash(cmake --build build --verbose)",
+      "Bash(C:\\\\msys64\\\\ucrt64\\\\bin\\\\g++.exe -g -Wl,--whole-archive CMakeFiles\\\\worldline.dir/objects.a -Wl,--no-whole-archive -o worldline.exe -Wl,--out-implib,libworldline.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\\\\worldline.dir\\\\linkLibs.rsp)",
+      "PowerShell(Get-Process -Name \"worldline\" -ErrorAction SilentlyContinue)"
     ]
   }
 }

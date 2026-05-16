@@ -37,7 +37,8 @@ struct RigidDragSample {
 };
 
 inline GeneralizedForces rigid_resistive_forces(const PendulumState& s,
-                                                const PendulumParams& p) {
+                                                const PendulumParams& p,
+                                                double time = 0.0) {
     GeneralizedForces forces;
 
     const Vec2 r1 = {
@@ -52,8 +53,8 @@ inline GeneralizedForces rigid_resistive_forces(const PendulumState& s,
     const Vec2 t2 = tangent_from_angle(p.l2, s.theta2);
     const Vec2 bob1_vel = t1 * s.omega1;
     const Vec2 bob2_vel = bob1_vel + t2 * s.omega2;
-    const Vec2 fluid1 = flow_velocity_at(r1, p.flow_field);
-    const Vec2 fluid2 = flow_velocity_at(r1 + r2, p.flow_field);
+    const Vec2 fluid1 = flow_velocity_at(r1, p.flow_field, time);
+    const Vec2 fluid2 = flow_velocity_at(r1 + r2, p.flow_field, time);
 
     forces.add_point_force(drag_force(bob1_vel - fluid1, p.bob1_drag), t1, {});
     forces.add_point_force(drag_force(bob2_vel - fluid2, p.bob2_drag), t1, t2);
@@ -68,7 +69,7 @@ inline GeneralizedForces rigid_resistive_forces(const PendulumState& s,
                 const auto sample = jacobian(s_unit);
                 const Vec2 drag_density =
                     anisotropic_drag_force(
-                        sample.velocity - flow_velocity_at(sample.position, p.flow_field),
+                        sample.velocity - flow_velocity_at(sample.position, p.flow_field, time),
                         sample.axis,
                         drag);
                 const double line_weight = weight * length;
@@ -77,20 +78,53 @@ inline GeneralizedForces rigid_resistive_forces(const PendulumState& s,
             });
         };
 
-    accumulate_segment_drag(p.l1, p.connector1_drag,
-        [&](double s_unit) {
-            const Vec2 position = r1 * s_unit;
-            const Vec2 j1 = t1 * s_unit;
-            return RigidDragSample{position, j1 * s.omega1, j1, {}, r1};
-        });
+    // Loop-fusion: when both connectors have drag, process them at each quadrature
+    // node together — 5 iterations instead of 10. Halves this cost in the common
+    // case (runs 4×RK4 stages × 42 steps/frame = 168 times/frame in the hot path).
+    const bool c1_active = p.l1 > 1e-9 && drag_active(p.connector1_drag);
+    const bool c2_active = p.l2 > 1e-9 && drag_active(p.connector2_drag);
 
-    accumulate_segment_drag(p.l2, p.connector2_drag,
-        [&](double s_unit) {
-            const Vec2 position = r1 + r2 * s_unit;
-            const Vec2 j1 = t1;
-            const Vec2 j2 = t2 * s_unit;
-            return RigidDragSample{position, j1 * s.omega1 + j2 * s.omega2, j1, j2, r2};
+    if (c1_active && c2_active) {
+        integrate_unit_interval_gauss5([&](double s_unit, double weight) {
+            {
+                const Vec2 pos = r1 * s_unit;
+                const Vec2 j1  = t1 * s_unit;
+                const Vec2 f   = anisotropic_drag_force(
+                    j1 * s.omega1 - flow_velocity_at(pos, p.flow_field, time),
+                    r1, p.connector1_drag);
+                forces.q1 += (weight * p.l1) * f.dot(j1);
+            }
+            {
+                const Vec2 pos = r1 + r2 * s_unit;
+                const Vec2 j1  = t1;
+                const Vec2 j2  = t2 * s_unit;
+                const Vec2 f   = anisotropic_drag_force(
+                    j1 * s.omega1 + j2 * s.omega2 - flow_velocity_at(pos, p.flow_field, time),
+                    r2, p.connector2_drag);
+                const double lw = weight * p.l2;
+                forces.q1 += lw * f.dot(j1);
+                forces.q2 += lw * f.dot(j2);
+            }
         });
+    } else {
+        if (c1_active) {
+            accumulate_segment_drag(p.l1, p.connector1_drag,
+                [&](double s_unit) {
+                    const Vec2 position = r1 * s_unit;
+                    const Vec2 j1 = t1 * s_unit;
+                    return RigidDragSample{position, j1 * s.omega1, j1, {}, r1};
+                });
+        }
+        if (c2_active) {
+            accumulate_segment_drag(p.l2, p.connector2_drag,
+                [&](double s_unit) {
+                    const Vec2 position = r1 + r2 * s_unit;
+                    const Vec2 j1 = t1;
+                    const Vec2 j2 = t2 * s_unit;
+                    return RigidDragSample{position, j1 * s.omega1 + j2 * s.omega2, j1, j2, r2};
+                });
+        }
+    }
 
     const double pivot_tau = joint_resistive_torque(s.omega1, p.pivot_resistance);
     forces.q1 += pivot_tau;
@@ -103,7 +137,8 @@ inline GeneralizedForces rigid_resistive_forces(const PendulumState& s,
 }
 
 inline PendulumState pendulum_derivatives(const PendulumState& s,
-                                          const PendulumParams& p) {
+                                          const PendulumParams& p,
+                                          double time = 0.0) {
     const double connector1_mass =
         (p.connector_mode == ConnectorMode::RIGID) ? p.connector1_mass : 0.0;
     const double connector2_mass =
@@ -132,7 +167,7 @@ inline PendulumState pendulum_derivatives(const PendulumState& s,
         coupling * sin_delta * s.omega1 * s.omega1
         -gravity2 * std::sin(s.theta2);
 
-    const GeneralizedForces resistance = rigid_resistive_forces(s, p);
+    const GeneralizedForces resistance = rigid_resistive_forces(s, p, time);
     rhs1 += resistance.q1;
     rhs2 += resistance.q2;
 
