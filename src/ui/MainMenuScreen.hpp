@@ -97,7 +97,7 @@ inline MainMenuResult draw_main_menu_screen(Rectangle viewport) {
               WL::TEXT_PRIMARY);
 
     draw_text_block(
-        "A seed defines everything - space, time, the laws of physics.\nYou can also start with the universe you already live in.",
+        "A seed defines the generated law, while the reference system preserves the familiar Newtonian baseline.",
         {intro.x, intro.y + 106.0f * s, intro.width, 100.0f * s},
         19.0f * s,
         WL::TEXT_SECONDARY,
@@ -138,13 +138,13 @@ inline MainMenuResult draw_main_menu_screen(Rectangle viewport) {
                WL::CYAN_CORE,
                s);
 
-    draw_text("Seeded Universe",
+    draw_text("Generated Universe",
               {seeded.x + 20.0f * s, seeded.y + 62.0f * s},
               42.0f * s,
               WL::TEXT_PRIMARY);
 
     draw_text_block(
-        "Generate worlds from deterministic seeds. Explore alternate rule sets and evolve alien physics from a single word.",
+        "Generate a deterministic universe from one seed, inspect its law assembly, and watch it drive the live renderer.",
         {seeded.x + 20.0f * s, seeded.y + 118.0f * s,
          seeded.width - 40.0f * s, 72.0f * s},
         18.5f * s,
@@ -155,7 +155,7 @@ inline MainMenuResult draw_main_menu_screen(Rectangle viewport) {
     if (draw_button(
             {seeded.x + 20.0f * s, seeded.y + seeded.height - 60.0f * s,
              220.0f * s, 40.0f * s},
-            "Enter Seeded Universe",
+            "Open Workspace",
             { 10, 88, 96, 240},
             { 16, 120, 130, 255},
             WL::CYAN_CORE,
@@ -179,12 +179,12 @@ inline MainMenuResult draw_main_menu_screen(Rectangle viewport) {
                             {  0,  0,  0,   0},
                             {  8, 16, 30,  60});
 
-    draw_text("Default Universe",
+    draw_text("Reference System",
               {default_card.x + 20.0f * s, default_card.y + 22.0f * s},
               30.0f * s,
               WL::TEXT_PRIMARY);
 
-    draw_text_block("Standard Newtonian universe.\nKnown laws. Predictable chaos.",
+    draw_text_block("Newtonian double pendulum.\nKnown laws, direct controls, clean baseline comparison.",
                     {default_card.x + 20.0f * s, default_card.y + 60.0f * s,
                      default_card.width - 40.0f * s, 60.0f * s},
                     17.0f * s,
@@ -224,7 +224,7 @@ inline MainMenuResult draw_main_menu_screen(Rectangle viewport) {
     if (draw_button(
             {default_card.x + 20.0f * s, default_card.y + default_card.height - 58.0f * s,
              default_card.width - 40.0f * s, 38.0f * s},
-            "Open Default Universe",
+            "Open Reference System",
             { 20, 36, 64, 232},
             { 30, 52, 90, 255},
             WL::TEXT_PRIMARY,
@@ -248,15 +248,4 @@ inline MainMenuResult draw_main_menu_screen(Rectangle viewport) {
                with_alpha(WL::CYAN_DIM, 140));
 
     return result;
-}
-
-// ── Back-to-menu button ────────────────────────────────────────────────────────
-inline bool draw_back_to_menu_button(Rectangle viewport, float scale = 1.0f) {
-    return draw_button(
-        {viewport.x + 20.0f * scale, viewport.y + 20.0f * scale, 160.0f * scale, 36.0f * scale},
-        "< Back",
-        { 14, 28, 46, 228},
-        { 22, 44, 70, 255},
-        WL::TEXT_PRIMARY,
-        true, scale);
 }

@@ -1,0 +1,32 @@
+name: Windows CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+  pull_request:
+
+jobs:
+  build-test-package:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        run: cmake -S . -B build -A x64
+
+      - name: Build Debug
+        run: cmake --build build --config Debug
+
+      - name: Run tests
+        run: ctest --test-dir build -C Debug --output-on-failure
+
+      - name: Package Release
+        run: cmake --build build --config Release --target package

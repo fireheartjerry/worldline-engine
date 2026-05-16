@@ -6,6 +6,7 @@
 struct SimulationDockResult {
     PanelCommand command = PanelCommand::NONE;
     bool open_settings   = false;
+    bool open_seed_debug = false;
 };
 
 // ── Run mode helpers ──────────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ inline SimulationDockResult draw_simulation_dock(const AppState& app,
                1.5f, with_alpha(WL::CYAN_CORE, 60));
 
     // ── Header ────────────────────────────────────────────────────────────────
-    draw_text("SIMULATION",
+    draw_text("REFERENCE SYSTEM",
               {ix, dock.y + 11.0f * s},
               12.0f * s,
               with_alpha(WL::CYAN_CORE, 180));
@@ -126,9 +127,19 @@ inline SimulationDockResult draw_simulation_dock(const AppState& app,
         result.command = PanelCommand::CLEAR_TRAIL;
     }
 
-    // ── Open Tuning Studio — violet CTA ──────────────────────────────────────
-    if (draw_button({ix, row3, iw, 32.0f * s},
-                    "Open Tuning Studio",
+    // ── Trace + Controls ─────────────────────────────────────────────────────
+    if (draw_button({ix, row3, bw, 32.0f * s},
+                    "Trace",
+                    {20, 36, 64, 232},
+                    {32, 56, 92, 255},
+                    WL::TEXT_PRIMARY,
+                    true,
+                    s)) {
+        result.open_seed_debug = true;
+    }
+
+    if (draw_button({ix + bw + gap, row3, bw, 32.0f * s},
+                    "Controls",
                     with_alpha(WL::VIOLET_DIM,  220),
                     with_alpha(WL::VIOLET_CORE,  80),
                     WL::VIOLET_CORE,

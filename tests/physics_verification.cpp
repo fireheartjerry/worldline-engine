@@ -1,5 +1,7 @@
+#include "app/AppFields.hpp"
 #include "physics/Simulation.hpp"
 #include "physics/LawSpec.hpp"
+#include "physics/ObservableExtractor.hpp"
 #include "seed/MetaSpec.hpp"
 #include <cmath>
 #include <cstdlib>
@@ -74,6 +76,9 @@ MetaSpec make_law_meta(bool dynamic_p) {
     ms.p = 1.35;
     ms.p_dynamic = dynamic_p;
     ms.p_beta = 0.40;
+    ms.time_varying = false;
+    ms.drift_omega = 0.0;
+    ms.drift_amp = 0.0;
     ms.q0[0] = 0.85;
     ms.q0[1] = 0.10;
     ms.qdot0[0] = 0.15;
@@ -421,6 +426,100 @@ void test_lawspec_runtime_halving_handles_large_acceleration() {
             "adaptive stepping must preserve the dynamic p clamp");
 }
 
+void test_observable_extractor_static_mapping_stays_in_range() {
+    const ObservableExtractor extractor(LawSpec(generate_meta_spec("observable-extractor-ranges")));
+    const PendulumDraft& draft = extractor.draft();
+
+    require(draft.l1 >= APP_MIN_LENGTH && draft.l1 <= APP_MAX_LENGTH,
+            "extractor l1 must stay inside editor bounds");
+    require(draft.l2 >= APP_MIN_LENGTH && draft.l2 <= APP_MAX_LENGTH,
+            "extractor l2 must stay inside editor bounds");
+    require(draft.m1 >= APP_MIN_MASS && draft.m1 <= APP_MAX_MASS,
+            "extractor m1 must stay inside editor bounds");
+    require(draft.m2 >= APP_MIN_MASS && draft.m2 <= APP_MAX_MASS,
+            "extractor m2 must stay inside editor bounds");
+    require(draft.connector1_mass >= APP_MIN_CONNECTOR_MASS && draft.connector1_mass <= APP_MAX_CONNECTOR_MASS,
+            "extractor connector1 mass must stay inside editor bounds");
+    require(draft.connector2_mass >= APP_MIN_CONNECTOR_MASS && draft.connector2_mass <= APP_MAX_CONNECTOR_MASS,
+            "extractor connector2 mass must stay inside editor bounds");
+    require(draft.l2 <= draft.l1 + 1.0e-9,
+            "lower reach should attenuate from the upper reach");
+    require(draft.m2 <= draft.m1 + 1.0e-9,
+            "lower bob mass should attenuate from the upper bob mass");
+    require(draft.connector2_mass <= draft.connector1_mass + 1.0e-9,
+            "lower connector mass should attenuate from the upper connector mass");
+    require(draft.connector1_normal_linear_drag >= draft.connector1_axial_linear_drag - 1.0e-9,
+            "warp anisotropy should bias upper connector drag toward the normal channel");
+    require(draft.connector2_normal_linear_drag >= draft.connector2_axial_linear_drag - 1.0e-9,
+            "warp anisotropy should bias lower connector drag toward the normal channel");
+}
+
+void test_observable_extractor_metric_basis_controls_angle_projection() {
+    MetaSpec ms{};
+    ms.g[0][0] = 1.0;
+    ms.g[0][1] = 0.0;
+    ms.g[1][0] = 0.0;
+    ms.g[1][1] = 2.0;
+    ms.V[0][0] = 0.4;
+    ms.V[1][1] = 0.8;
+    ms.S[0][0] = 0.2;
+    ms.S[1][1] = -0.1;
+    ms.p = 0.8;
+    ms.q0[0] = 0.2;
+    ms.q0[1] = 0.2;
+    ms.qdot0[0] = 0.1;
+    ms.qdot0[1] = 0.1;
+
+    ObservableExtractor extractor{LawSpec(ms)};
+    const PendulumState along_minor = extractor.observe({{1.0, 0.0}, {}, ms.p});
+    const PendulumState along_major = extractor.observe({{0.0, 1.0}, {}, ms.p});
+
+    require(std::abs(along_minor.theta1) < std::abs(along_minor.theta2),
+            "minor-axis displacement should primarily drive the lower observable when projected in the metric basis");
+    require(std::abs(along_major.theta2) < std::abs(along_major.theta1),
+            "major-axis displacement should primarily drive the upper observable when projected in the metric basis");
+}
+
+void test_observable_extractor_time_varying_drift_moves_angles_only() {
+    MetaSpec ms = make_law_meta(false);
+    ms.time_varying = true;
+    ms.drift_omega = 0.25;
+    ms.drift_amp = 0.18;
+
+    ObservableExtractor extractor{LawSpec(ms)};
+    const LawState state = {{0.3, -0.1}, {0.2, 0.4}, ms.p};
+    const PendulumState first = extractor.observe(state, 0.0);
+    const PendulumState second = extractor.observe(state, 0.8);
+
+    require(std::abs(first.theta1 - second.theta1) > 1.0e-4
+                || std::abs(first.theta2 - second.theta2) > 1.0e-4,
+            "time-varying drift should alter the observed angles");
+    require(relative_error(first.omega1, second.omega1) < 1.0e-9,
+            "time-varying drift should not alter the observed omega1 when the LawState velocity is unchanged");
+    require(relative_error(first.omega2, second.omega2) < 1.0e-9,
+            "time-varying drift should not alter the observed omega2 when the LawState velocity is unchanged");
+}
+
+void test_observable_extractor_static_observation_is_repeatable() {
+    ObservableExtractor extractor(LawSpec(make_law_meta(true)));
+    const LawState state = {{0.15, 0.55}, {-0.35, 0.12}, 1.1};
+    const PendulumState first = extractor.observe(state, 0.0);
+    const PendulumState second = extractor.observe(state, 0.0);
+
+    require(relative_error(first.theta1, second.theta1) < 1.0e-12,
+            "static observation should be repeatable when no drift time is advanced");
+    require(relative_error(first.theta2, second.theta2) < 1.0e-12,
+            "static observation should be repeatable when no drift time is advanced");
+    require(std::abs(first.theta1) <= APP_MAX_ANGLE_DEG * APP_DEG_TO_RAD + 1.0e-9,
+            "observed theta1 must stay within angle bounds");
+    require(std::abs(first.theta2) <= APP_MAX_ANGLE_DEG * APP_DEG_TO_RAD + 1.0e-9,
+            "observed theta2 must stay within angle bounds");
+    require(std::abs(first.omega1) <= APP_MAX_OMEGA_DEG * APP_DEG_TO_RAD + 1.0e-9,
+            "observed omega1 must stay within omega bounds");
+    require(std::abs(first.omega2) <= APP_MAX_OMEGA_DEG * APP_DEG_TO_RAD + 1.0e-9,
+            "observed omega2 must stay within omega bounds");
+}
+
 } // namespace
 int main() {
     test_conservative_rigid_energy_stability();
@@ -435,6 +534,10 @@ int main() {
     test_lawspec_dynamic_p_evolves_but_stays_clamped();
     test_lawspec_static_p_snaps_back_to_seed();
     test_lawspec_runtime_halving_handles_large_acceleration();
+    test_observable_extractor_static_mapping_stays_in_range();
+    test_observable_extractor_metric_basis_controls_angle_projection();
+    test_observable_extractor_time_varying_drift_moves_angles_only();
+    test_observable_extractor_static_observation_is_repeatable();
     std::cout << "physics_verification passed\n";
     return 0;
 }

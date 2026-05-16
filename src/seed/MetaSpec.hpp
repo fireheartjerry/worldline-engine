@@ -14,6 +14,9 @@ struct MetaSpec {
     double p = 0.0;
     bool p_dynamic = false;
     double p_beta = 0.0;
+    bool time_varying = false;
+    double drift_omega = 0.0;
+    double drift_amp = 0.0;
     double q0[2]{};
     double qdot0[2]{};
     double s_a = 0.0; // potential modification weight

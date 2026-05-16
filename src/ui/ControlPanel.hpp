@@ -6,7 +6,7 @@
 #include <string>
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Control Panel  — Tuning Studio
+//  Control Panel  — Reference Controls
 //  Visual language: sharp-cornered glassy cards, neon accent stripes, glow
 //  knobs, diamond toggles.  Every section has a unique accent colour that
 //  matches the HUD diagnostic palette so the two panels stay coherent.
@@ -345,7 +345,7 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
     const std::string bob_drag_note   = "Per-bob viscous and air-drag coefficients.";
     const std::string link_drag_note  = "Axial terms act along the link. Normal terms resist cross-flow.";
     const std::string joints_note     = "Pivot and elbow damping or dry friction. Rigid mode only.";
-    const std::string visuals_note    = "Presets switch between presentation and debugging overlays.";
+    const std::string visuals_note    = "Presets switch between clean presentation and analysis overlays.";
     const std::string metrics_note    = "Live force-and-power readout for the current frame.";
 
     const float card_width           = panel.width - 36.0f * ui;
@@ -440,10 +440,10 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
                      static_cast<int>(panel.width), static_cast<int>(panel.height));
 
     // ── Panel header ───────────────────────────────────────────────────────────
-    draw_text("TUNING STUDIO",
+    draw_text("REFERENCE CONTROLS",
               {panel.x + 18.0f * ui, panel_y(title_offset)},
               12.0f * ui, with_alpha(WL::CYAN_CORE, 190));
-    draw_text("Pick a connector model, shape the launch, then run it.",
+    draw_text("Tune the Newtonian baseline, then compare it against generated motion.",
               {panel.x + 18.0f * ui, panel_y(title_offset) + 16.0f * ui},
               15.0f * ui, WL::TEXT_TERTIARY);
 

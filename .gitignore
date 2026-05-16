@@ -1,5 +1,7 @@
 # Build output
 build/
+build-release/
+worldline-data/
 
 # CMake generated
 CMakeCache.txt

@@ -3,6 +3,7 @@
 #include "MainMenuScreen.hpp"
 #include "UiPrimitives.hpp"
 
+#include "../app/SeededUniverseRuntime.hpp"
 #include "../app/AppTypes.hpp"
 #include "../physics/LawSpec.hpp"
 #include "../seed/MetaSpec.hpp"
@@ -144,31 +145,7 @@ inline std::string law_readout(const MetaSpec& meta_spec,
 }
 
 inline void run_generation(SeededUniverseUiState& state) {
-    SeededUniverseResult result;
-    result.seed = state.seed_input;
-
-    try {
-        result.expansion_trace = expand_with_trace(result.seed);
-        result.machine_trace = compress_with_trace(result.expansion_trace.expanded);
-        result.lanes.assign(result.machine_trace.output.begin(), result.machine_trace.output.end());
-        result.meta_spec = generate_meta_spec(result.lanes);
-        result.descriptor = generate_descriptor(result.meta_spec);
-        result.law_preview = build_law_preview(result.meta_spec);
-        result.descriptor += "\n\n";
-        result.descriptor += law_readout(result.meta_spec, result.law_preview);
-        result.ready = true;
-    } catch (const std::exception& ex) {
-        result.error = ex.what();
-    }
-
-    state.result = std::move(result);
-    state.playback_time = 0.0f;
-    state.body_scroll = 0.0f;
-    state.descriptor_scroll = 0.0f;
-    state.info_modal_scroll = 0.0f;
-    state.scrub_active = false;
-    state.focus_kind = SeededFocusKind::LANE;
-    state.focus_index = 0;
+    regenerate_seeded_universe(state);
 }
 
 inline float matrix_peak(const double matrix[2][2]) {
@@ -1861,3 +1838,7 @@ inline bool draw_seeded_universe_screen(AppState& app, Rectangle viewport) {
 } // namespace SeededUniverseUi
 
 using SeededUniverseUi::draw_seeded_universe_screen;
+
+inline bool draw_seeded_universe_debug_screen(AppState& app, Rectangle viewport) {
+    return draw_seeded_universe_screen(app, viewport);
+}

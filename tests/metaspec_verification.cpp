@@ -91,7 +91,7 @@ void append_bits(std::vector<std::uint64_t>& bits, const double tensor[2][2][2])
 
 std::vector<std::uint64_t> meta_bits(const MetaSpec& ms) {
     std::vector<std::uint64_t> bits;
-    bits.reserve(46u);
+    bits.reserve(49u);
     append_bits(bits, ms.g);
     append_bits(bits, ms.V);
     append_bits(bits, ms.C);
@@ -102,6 +102,9 @@ std::vector<std::uint64_t> meta_bits(const MetaSpec& ms) {
     bits.push_back(canonical_double_bits(ms.p));
     bits.push_back(ms.p_dynamic ? 1u : 0u);
     bits.push_back(canonical_double_bits(ms.p_beta));
+    bits.push_back(ms.time_varying ? 1u : 0u);
+    bits.push_back(canonical_double_bits(ms.drift_omega));
+    bits.push_back(canonical_double_bits(ms.drift_amp));
     bits.push_back(canonical_double_bits(ms.q0[0]));
     bits.push_back(canonical_double_bits(ms.q0[1]));
     bits.push_back(canonical_double_bits(ms.qdot0[0]));
@@ -228,6 +231,12 @@ void test_structural_invariants() {
             "s_b must stay inside [0, 1]");
     require(ms.s_c >= 0.0 && ms.s_c <= 1.0,
             "s_c must stay inside [0, 1]");
+    require(ms.drift_omega >= 0.0,
+            "drift_omega must stay nonnegative");
+    require(ms.drift_amp >= 0.0,
+            "drift_amp must stay nonnegative");
+    require(!ms.time_varying || ms.drift_amp > 0.0,
+            "time-varying universes must carry nonzero drift amplitude");
 
     const double q_norm = norm2(ms.q0);
     const double qdot_norm = norm2(ms.qdot0);
@@ -400,6 +409,25 @@ void test_middle_lane_spread_drives_dynamic_p() {
             "wide middle-lane spread should trigger dynamic p");
 }
 
+void test_middle_lane_spread_drives_time_varying_entry_point() {
+    std::vector<double> static_lanes = flat_lanes(0.5);
+    const MetaSpec static_ms = generate_meta_spec(static_lanes);
+    require(!static_ms.time_varying,
+            "uniform drift lanes should not trigger time-varying entry");
+
+    std::vector<double> drifting_lanes = flat_lanes(0.5);
+    drifting_lanes[18] = 0.0;
+    drifting_lanes[23] = 1.0;
+    drifting_lanes[28] = 0.0;
+    const MetaSpec drifting_ms = generate_meta_spec(drifting_lanes);
+    require(drifting_ms.time_varying,
+            "wide drift-lane spread should trigger time-varying entry");
+    require(drifting_ms.drift_omega > 0.0,
+            "time-varying entry should carry nonzero drift frequency");
+    require(drifting_ms.drift_amp > 0.0,
+            "time-varying entry should carry nonzero drift amplitude");
+}
+
 } // namespace
 
 int main() {
@@ -413,6 +441,7 @@ int main() {
     test_seed_regression_envelopes();
     test_distribution_richness_corpus();
     test_middle_lane_spread_drives_dynamic_p();
+    test_middle_lane_spread_drives_time_varying_entry_point();
     return 0;
 }
 

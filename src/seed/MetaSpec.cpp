@@ -672,6 +672,7 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
         middle_max = std::max(middle_max, u[i]);
     }
     const double middle_spread = middle_max - middle_min;
+    const double drift_spread = std::max({u[18], u[23], u[28]}) - std::min({u[18], u[23], u[28]});
 
     const double phi = kTwoPi * u[30];
     const bool soft_is_first = std::abs(v.lambda0) <= std::abs(v.lambda1);
@@ -720,6 +721,13 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
     meta_spec.p = 4.5 * std::tanh(driver);
     meta_spec.p_dynamic = middle_spread > 0.58;
     meta_spec.p_beta = 0.15 + 0.25 * u[24];
+    meta_spec.time_varying = drift_spread > 0.58;
+    meta_spec.drift_omega = meta_spec.time_varying
+        ? 0.010 + 0.030 * std::abs(v.lambda1) / (1.0 + std::abs(v.lambda0) + std::abs(v.lambda1))
+        : 0.0;
+    meta_spec.drift_amp = meta_spec.time_varying
+        ? q_radius * (0.06 + 0.08 * u[26])
+        : 0.0;
     meta_spec.q0[0] = q0.x;
     meta_spec.q0[1] = q0.y;
     meta_spec.qdot0[0] = qdot0.x;

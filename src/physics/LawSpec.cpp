@@ -233,7 +233,19 @@ LawState LawSpec::derivative(const LawState& state) const {
     Vec2 force{};
     force -= mul(potential, current.q) * (potential_linear_gain_ * potential_weight);
     force += mul(coupling0, current.q) * position_weight;
-    force += mul(coupling1, current.v) * velocity_weight;
+    {
+        // Velocity coupling: preserve the transverse (gyroscopic/redirecting) component
+        // but remove any radial component that injects energy into the system.
+        // This keeps all the exotic orbit-bending behavior while preventing unbounded growth.
+        const Vec2 c1_raw = mul(coupling1, current.v) * velocity_weight;
+        const double c1_power = c1_raw.dot(current.v);
+        if (c1_power > 0.0) {
+            const double v_eucl_sq = current.v.dot(current.v);
+            force += c1_raw - current.v * (c1_power / (v_eucl_sq + kEpsilon));
+        } else {
+            force += c1_raw;
+        }
+    }
     force += mul(time_skew, current.v);
     force += mul(gyro0, current.v) * position_weight;
     force += mul(gyro1, current.v) * velocity_weight;
@@ -250,6 +262,19 @@ LawState LawSpec::derivative(const LawState& state) const {
         const Vec2 symmetry_preserving = project(force, symmetry_axis);
         const Vec2 symmetry_breaking = force - symmetry_preserving;
         force -= symmetry_breaking * meta_spec_.s_b;
+    }
+
+    // Soft boundedness governors: activate only well outside the normal operating range
+    // (initial q_radius ≤ 0.64, speed ≤ 1.30) to prevent divergence while leaving
+    // all the exotic gyroscopic, warp, and saddle dynamics untouched in the normal regime.
+    // Threshold at ~4x normal radius and ~3x normal speed in the metric norm.
+    const double q_sq = current.q.dot(gq);   // q^T g q
+    const double v_sq = current.v.dot(gv);   // v^T g v
+    if (q_sq > 8.0) {
+        force -= gq * (0.12 * (q_sq - 8.0));
+    }
+    if (v_sq > 16.0) {
+        force -= gv * (0.12 * (v_sq - 16.0));
     }
 
     const Vec2 accel = mul(metric_inverse, force);

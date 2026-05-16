@@ -2,9 +2,11 @@
 #include "../seed/CellularExpander.hpp"
 #include "../seed/MetaSpec.hpp"
 #include "../seed/SeedMachine.hpp"
+#include "UniverseModel.hpp"
 #include "../physics/Simulation.hpp"
 #include "../renderer/Trail.hpp"
 #include <array>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,10 +16,18 @@ constexpr double APP_DEG_TO_RAD = 3.14159265358979323846 / 180.0;
 enum class RunMode { STOPPED, RUNNING, PAUSED };
 
 enum class AppScreen {
-    MAIN_MENU,
-    DEFAULT_UNIVERSE,
-    SEEDED_UNIVERSE
+    GUIDED_FIRST_UNIVERSE,
+    SEEDED_WORKSPACE,
+    UNIVERSE_ATLAS,
+    REFERENCE_LAB,
+    TRACE,
+    MAIN_MENU = GUIDED_FIRST_UNIVERSE,
+    DEFAULT_UNIVERSE = REFERENCE_LAB,
+    SEEDED_UNIVERSE = SEEDED_WORKSPACE,
+    SEEDED_UNIVERSE_DEBUG = TRACE
 };
+
+struct SeededUniverseRuntime;
 
 enum class OverlayPreset {
     CLEAN,
@@ -203,8 +213,13 @@ enum class SeededFocusKind {
 
 struct SeededUniverseUiState {
     std::string seed_input = "worldline";
+    WorkspaceState workspace;
     bool input_active = false;
     bool input_select_all = false;
+    bool title_input_active = false;
+    bool title_input_select_all = false;
+    bool notes_input_active = false;
+    bool notes_input_select_all = false;
     bool debug_enabled = true;
     bool scrub_active = false;
     bool info_ignore_mouse_until_release = false;
@@ -214,14 +229,46 @@ struct SeededUniverseUiState {
     float descriptor_scroll = 0.0f;
     float info_modal_scroll = 0.0f;
     float backspace_repeat_timer = 0.0f;
+    float title_backspace_repeat_timer = 0.0f;
+    float notes_backspace_repeat_timer = 0.0f;
+    float save_feedback_timer = 0.0f;
     SeededInfoTopic info_topic = SeededInfoTopic::NONE;
     SeededFocusKind focus_kind = SeededFocusKind::LANE;
     int focus_index = 0;
     SeededUniverseResult result;
+    std::unique_ptr<SeededUniverseRuntime> runtime;
+
+    SeededUniverseUiState();
+    ~SeededUniverseUiState();
+    SeededUniverseUiState(const SeededUniverseUiState&) = delete;
+    SeededUniverseUiState& operator=(const SeededUniverseUiState&) = delete;
+    SeededUniverseUiState(SeededUniverseUiState&&) noexcept;
+    SeededUniverseUiState& operator=(SeededUniverseUiState&&) noexcept;
+};
+
+struct GuidedFirstUniverseSceneState {
+    float reveal_time = 0.0f;
+    bool completed_intro = false;
+};
+
+struct UniverseAtlasSceneState {
+    std::string query;
+    bool query_active = false;
+    bool query_select_all = false;
+    float backspace_repeat_timer = 0.0f;
+    int primary_index = 0;
+    int compare_index = -1;
+    float scroll = 0.0f;
+};
+
+struct TraceSceneState {
+    float scroll = 0.0f;
+    bool glossary_open = false;
 };
 
 struct UiState {
-    AppScreen screen = AppScreen::MAIN_MENU;
+    AppScreen screen = AppScreen::GUIDED_FIRST_UNIVERSE;
+    AppScreen seeded_debug_return_screen = AppScreen::GUIDED_FIRST_UNIVERSE;
     FieldId active_field = FieldId::NONE;
     FieldId active_slider = FieldId::NONE;
     std::string buffer;
@@ -232,7 +279,10 @@ struct UiState {
     bool slider_wheel_used = false;
     bool settings_open = false;
     std::array<bool, static_cast<std::size_t>(PanelSection::COUNT)> collapsed_sections{};
+    GuidedFirstUniverseSceneState guided;
     SeededUniverseUiState seeded;
+    UniverseAtlasSceneState atlas;
+    TraceSceneState trace;
 };
 
 inline std::array<bool, static_cast<std::size_t>(PanelSection::COUNT)> default_collapsed_sections() {
@@ -260,6 +310,8 @@ struct AppState {
     VisualDraft visuals;
     Simulation simulation;
     Trail<APP_TRAIL_CAPACITY> trail;
+    CatalogIndex catalog;
+    PersistentAppSettings settings;
     UiState ui;
     RunMode mode = RunMode::STOPPED;
     double accumulator = 0.0;

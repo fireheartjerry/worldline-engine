@@ -378,3 +378,26 @@ inline void draw_metric(Rectangle rect,
     draw_text(label, {rect.x + 9.0f * scale, rect.y + 7.0f * scale}, label_size, WL::TEXT_TERTIARY);
     draw_text(value, {rect.x + 9.0f * scale, rect.y + 24.0f * scale}, value_size, WL::TEXT_PRIMARY);
 }
+
+inline void draw_scrollbar(Rectangle viewport, float scroll, float max_scroll) {
+    if (max_scroll <= 0.0f) return;
+    const float track_w = 5.0f;
+    const float track_x = viewport.x + viewport.width - track_w - 3.0f;
+    const float track_y = viewport.y + 3.0f;
+    const float track_h = viewport.height - 6.0f;
+    const float thumb_h = std::max(28.0f, track_h * (viewport.height / (viewport.height + max_scroll)));
+    const float thumb_y = track_y + (track_h - thumb_h) * (scroll / max_scroll);
+    DrawRectangleRounded({track_x, track_y, track_w, track_h}, 0.5f, 8, {255, 255, 255, 8});
+    DrawRectangleRounded({track_x, thumb_y, track_w, thumb_h}, 0.5f, 8, {64, 208, 224, 100});
+}
+
+inline bool draw_back_to_menu_button(Rectangle viewport, float scale = 1.0f) {
+    return draw_button(
+        {viewport.x + 20.0f * scale, viewport.y + 20.0f * scale, 160.0f * scale, 36.0f * scale},
+        "< Back",
+        {14, 28, 46, 228},
+        {22, 44, 70, 255},
+        WL::TEXT_PRIMARY,
+        true,
+        scale);
+}
