@@ -80,6 +80,29 @@ UniverseClassification classify_universe(const LawGenome& g) {
     const double balance = (centered(strongN) + centered(emN) + centered(gravN)) / 3.0;
     c.complexity = std::clamp(
         0.55 * balance + 0.30 * stabN + 0.15 * (1.0 - std::abs(driftN - 0.35)), 0.0, 1.0);
+
+    // ── Fine-grained observation metrics ────────────────────────────────────
+    UniverseObservation& o = c.observation;
+    o.baryon_richness = std::clamp(0.5 * emN + 0.5 * strongN, 0.0, 1.0);
+    o.structure_index = std::clamp(0.6 * gravN + 0.4 * stabN, 0.0, 1.0);
+    o.luminosity_index = std::clamp(0.55 * strongN + 0.45 * gravN, 0.0, 1.0);
+    o.entropy_index = std::clamp(0.7 * driftN + 0.3 * (1.0 - stabN), 0.0, 1.0);
+    o.coherence_index = std::clamp(0.6 * stabN + 0.4 * (1.0 - driftN), 0.0, 1.0);
+    const double hab = 0.4 * c.complexity + 0.3 * o.baryon_richness +
+                       0.3 * (1.0 - std::abs(o.entropy_index - 0.4));
+    o.habitability_tier = std::clamp(static_cast<int>(hab * 5.0), 0, 4);
+
+    // ── Finer sub-class + era ────────────────────────────────────────────────
+    const int tier = std::clamp(static_cast<int>(best->score * 4.0), 0, 3);
+    static const char* kRoman[4] = {"I", "II", "III", "IV"};
+    const char band = static_cast<char>('a' + std::clamp(static_cast<int>(c.complexity * 3.0), 0, 2));
+    c.sub_class = std::string("Type ") + kRoman[tier] + "-" + band;
+
+    c.era = (driftN > 0.66)   ? "Expansion-dominated"
+          : (gravN > 0.66)    ? "Collapse-dominated"
+          : (stabN > 0.6)     ? "Quiescent"
+          : (strongN > 0.6)   ? "Forge"
+                              : "Equilibrium";
     return c;
 }
 
@@ -166,8 +189,17 @@ ValidationReport validate_universe(const Universe& u) {
     if (!finite_in(g.stability_bias, 0.15, 0.90)) fail("stability_bias out of range");
 
     if (u.classification.class_name.empty()) fail("classification has no class name");
+    if (u.classification.sub_class.empty()) fail("classification has no sub-class");
     if (u.classification.codename.empty()) fail("classification has no codename");
+    if (u.classification.era.empty()) fail("classification has no era");
     if (!finite_in(u.classification.complexity, 0.0, 1.0)) fail("complexity out of range");
+    const UniverseObservation& obs = u.classification.observation;
+    if (!finite_in(obs.baryon_richness, 0.0, 1.0)) fail("baryon_richness out of range");
+    if (!finite_in(obs.structure_index, 0.0, 1.0)) fail("structure_index out of range");
+    if (!finite_in(obs.luminosity_index, 0.0, 1.0)) fail("luminosity_index out of range");
+    if (!finite_in(obs.entropy_index, 0.0, 1.0)) fail("entropy_index out of range");
+    if (!finite_in(obs.coherence_index, 0.0, 1.0)) fail("coherence_index out of range");
+    if (obs.habitability_tier < 0 || obs.habitability_tier > 4) fail("habitability out of range");
 
     if (u.catalog.empty()) {
         fail("catalog is empty");

@@ -4,7 +4,9 @@
 
 #include "cosmos/LawGenome.hpp"
 #include "cosmos/NBodySystem.hpp"
+#include "cosmos/Nav3D.hpp"
 #include "cosmos/ObjectCatalog.hpp"
+#include "cosmos/ObserverFleet.hpp"
 #include "cosmos/Sandbox.hpp"
 #include "cosmos/ScaleLadder.hpp"
 #include "cosmos/Universe.hpp"
@@ -142,10 +144,81 @@ void test_fuzz_sandbox_stability() {
     }
 }
 
+void test_classification_granularity() {
+    const Universe u = generate_universe("granular-seed");
+    const UniverseClassification& c = u.classification;
+    require(!c.sub_class.empty(), "sub-class must be set");
+    require(!c.era.empty(), "era must be set");
+    const UniverseObservation& o = c.observation;
+    require(o.baryon_richness >= 0.0 && o.baryon_richness <= 1.0, "baryon richness bounds");
+    require(o.structure_index >= 0.0 && o.structure_index <= 1.0, "structure index bounds");
+    require(o.entropy_index >= 0.0 && o.entropy_index <= 1.0, "entropy index bounds");
+    require(o.habitability_tier >= 0 && o.habitability_tier <= 4, "habitability bounds");
+
+    // The finer metrics must vary across universes.
+    int distinct = 0;
+    double last = -1.0;
+    for (int i = 0; i < 10; ++i) {
+        const Universe v = generate_universe("g-" + std::to_string(i));
+        if (v.classification.observation.structure_index != last) ++distinct;
+        last = v.classification.observation.structure_index;
+    }
+    require(distinct >= 6, "observation metrics must vary across universes");
+}
+
+void test_observer_fleet() {
+    const Universe u = generate_universe("fleet-seed");
+    NBodySystem sys;
+    populate_sandbox(sys, u.catalog, u.genome, Scale::STELLAR, 40);
+    advance_sandbox(sys, 60);
+
+    ObserverFleet fleet;
+    fleet.deploy(20, 6.0, u.genome.signature);
+    require(fleet.agents.size() == 20, "fleet must deploy the requested agents");
+    for (int i = 0; i < 200; ++i) {
+        fleet.update(sys, 1.0 / 60.0);
+    }
+    const FleetReport r = fleet.report();
+    require(r.finite, "fleet must stay finite");
+    require(r.coverage >= 0.0 && r.coverage <= 1.0, "coverage must be a fraction");
+    require(r.species_seen >= 0, "species seen must be non-negative");
+    require(r.mean_density >= 0.0, "mean density must be non-negative");
+    // Probes must stay in view (soft confinement).
+    for (const Observer& a : fleet.agents) {
+        require(std::isfinite(a.pos.x) && std::abs(a.pos.x) < 50.0, "probes must stay bounded");
+    }
+}
+
+void test_nav3d_camera() {
+    using namespace nav3d;
+    OrbitCamera cam;
+    const Vec3 e0 = cam.eye();
+    require(std::isfinite(e0.x) && std::isfinite(e0.y) && std::isfinite(e0.z), "eye must be finite");
+
+    cam.zoom(0.5);
+    require(cam.distance < 12.0 && cam.distance >= cam.min_distance, "zoom must move in and clamp");
+    cam.zoom(1.0e9);
+    require(cam.distance <= cam.max_distance, "zoom out must clamp to max");
+
+    cam.orbit(0.0, 100.0); // huge pitch
+    require(cam.pitch < 1.571 && cam.pitch > -1.571, "pitch must clamp away from poles");
+
+    // Orthonormal-ish basis.
+    const Vec3 f = cam.forward();
+    require(std::abs(f.length() - 1.0) < 1.0e-6, "forward must be unit length");
+    require(std::abs(f.dot(cam.right())) < 1.0e-6, "right must be perpendicular to forward");
+
+    cam.frame(Vec3{0, 0, 0}, 20.0);
+    require(cam.distance > 0.0 && std::isfinite(cam.distance), "frame must set a finite distance");
+}
+
 } // namespace
 
 int main() {
     test_classification();
+    test_classification_granularity();
+    test_observer_fleet();
+    test_nav3d_camera();
     test_validation_passes_and_catches_corruption();
     test_genome_quantization();
     test_palette();

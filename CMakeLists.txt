@@ -47,6 +47,8 @@ add_library(worldline_cosmos
     src/cosmos/Sandbox.cpp
     src/cosmos/Analysis.cpp
     src/cosmos/Universe.cpp
+    src/cosmos/ObserverFleet.cpp
+    src/cosmos/Nav3D.cpp
 )
 target_include_directories(worldline_cosmos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(worldline_cosmos PUBLIC worldline_seed)

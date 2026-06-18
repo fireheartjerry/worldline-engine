@@ -12,12 +12,26 @@ namespace cosmos {
 // generate_universe changes, so saved artifacts can be reasoned about.
 constexpr int kGenerationVersion = 2;
 
+// Fine-grained observation metrics derived from the genome — the quantitative
+// half of the classification dossier.
+struct UniverseObservation {
+    double baryon_richness = 0.0;  // [0,1] chemical / element diversity
+    double structure_index = 0.0;  // [0,1] tendency to form bound structure
+    double luminosity_index = 0.0; // [0,1] energetic output potential
+    double entropy_index = 0.0;    // [0,1] disorder / expansion tendency
+    double coherence_index = 0.0;  // [0,1] long-range order
+    int habitability_tier = 0;     // 0..4 coarse habitability rating
+};
+
 // A sci-fi "dossier" classifying a universe from its law genome.
 struct UniverseClassification {
     std::string class_name;          // e.g. "Hadron-Dominant Cosmos"
+    std::string sub_class;           // finer designation, e.g. "Type II-b"
     std::string codename;            // e.g. "WL-A3F2"
+    std::string era;                 // dominant cosmic era flavor
     std::vector<std::string> traits; // human-readable distinguishing properties
     double complexity = 0.0;         // [0,1] potential for rich emergent structure
+    UniverseObservation observation;
 };
 
 UniverseClassification classify_universe(const LawGenome& genome);
