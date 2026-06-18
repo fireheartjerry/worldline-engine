@@ -401,7 +401,7 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
         const float mw = metrics.width * 0.5f - 22.0f * ui;
 
         draw_metric({metrics.x + 14.0f * ui, my,             mw, 60.0f * ui}, "Total Reach",  format_number(reach,  2) + " m",   ui);
-        draw_metric({metrics.x + 14.0f * ui + mw + 12.0f*ui, my,             mw, 60.0f * ui}, "Energy",       format_number(energy, 3),              ui);
+        draw_metric({metrics.x + 14.0f * ui + mw + 12.0f*ui, my,             mw, 60.0f * ui}, "Energy",       format_number(energy, 3) + " J",       ui);
         draw_metric({metrics.x + 14.0f * ui, my + 66.0f*ui,  mw, 60.0f * ui}, "Upper Angle",  format_number(angle1, 1) + " deg",  ui);
         draw_metric({metrics.x + 14.0f * ui + mw + 12.0f*ui, my + 66.0f*ui,  mw, 60.0f * ui}, "Lower Angle",  format_number(angle2, 1) + " deg",  ui);
         draw_metric({metrics.x + 14.0f * ui, my + 132.0f*ui, mw, 60.0f * ui}, "Upper Link",   app.simulation.connector1_taut() ? "Taut" : "Slack", ui);

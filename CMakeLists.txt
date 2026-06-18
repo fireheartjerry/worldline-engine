@@ -68,6 +68,7 @@ worldline_apply_warnings(worldline_app)
 add_executable(worldline
     src/main.cpp
     src/ui/CosmosExplorerScene.cpp
+    src/ui/CosmosExplorerPanels.cpp
     src/ui/GuidedFirstUniverseScene.cpp
     src/ui/SeedWorkspaceScene.cpp
     src/ui/TraceScene.cpp
