@@ -6,13 +6,32 @@
 namespace cosmos {
 
 ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
-    // Each tier has its own characteristic force law. Genome couplings modulate
-    // the magnitudes so every universe still differs, but the qualitative
-    // behavior (confinement, bonding, orbits, rotation, expansion) is the
-    // signature of the scale.
+    // Each tier has its own characteristic force law. The genome modulates every
+    // knob within a band that preserves the qualitative signature (confinement,
+    // bonding, orbits, rotation, expansion) while making universes differ
+    // dramatically: trap tightness, damping, rotation, exclusion and bonding all
+    // shift with the universe's constants.
     const double em = genome.coupling_em;
     const double strong = genome.coupling_strong;
     const double grav = genome.coupling_gravity;
+
+    // Normalized genome drivers in [0,1].
+    auto norm = [](double v, double lo, double hi) {
+        return std::clamp((v - lo) / (hi - lo), 0.0, 1.0);
+    };
+    const double stabN = norm(genome.stability_bias, 0.15, 0.90);
+    const double driftN = norm(genome.cosmological_drift, 0.70, 1.50);
+    const double massN = norm(genome.mass_scale, 0.60, 1.60);
+    const double emN = norm(em, 0.35, 1.80);
+    const double strongN = norm(strong, 0.35, 1.80);
+
+    // Universe-wide modulators (shared across tiers).
+    const double trap = 0.75 + 0.65 * stabN;   // [0.75,1.40] tighter when stable
+    const double drag = 0.70 + 0.75 * stabN;   // [0.70,1.45]
+    const double exclude = 0.80 + 0.55 * emN;  // [0.80,1.35] core stiffness
+    const double bond_d = 0.92 + 0.18 * massN; // [0.92,1.10] bond distance
+    const double spin = 0.60 + 1.05 * driftN;  // [0.60,1.65] rotation drive
+    const double bind = 0.65 + 0.85 * strongN; // [0.65,1.50] confinement/binding
 
     ForceParams p;
     p.exponent = std::clamp(genome.gravity_exponent, 1.5, 2.5);
@@ -22,90 +41,72 @@ ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
 
     switch (tier.scale) {
     case Scale::SUBATOMIC:
-        // Quark/lepton confinement: a linear pairwise attraction that grows with
-        // distance, like-charge repulsion, and a tight trap. Nothing escapes.
         p.charge = 1.2 * em;
         p.strong = 1.2 * strong;
-        p.core = 0.5;
-        p.linear = 0.45 * strong;
-        p.confinement = 1.5;
-        p.damping = 0.18;
+        p.core = 0.5 * exclude;
+        p.linear = 0.45 * strong * bind;
+        p.confinement = 1.5 * trap;
+        p.damping = 0.18 * drag;
         break;
     case Scale::NUCLEAR:
-        // Strong force: powerful short-range binding + hard core forms tight,
-        // discrete nuclei.
         p.charge = 0.30 * em;
-        p.strong = 2.6 * strong;
-        p.core = 0.75;
-        p.bond_range = 1.0;
+        p.strong = 2.6 * strong * bind;
+        p.core = 0.75 * exclude;
+        p.bond_range = 1.0 * bond_d;
         p.bond_width = 0.42;
-        p.confinement = 1.0;
-        p.damping = 0.16;
+        p.confinement = 1.0 * trap;
+        p.damping = 0.16 * drag;
         break;
     case Scale::ATOMIC:
-        // Electrostatic shells: weak attraction with a stiff exclusion core, so
-        // neutral atoms pack like a liquid/solid rather than overlap.
         p.gravity = 0.18;
         p.charge = 0.6 * em;
         p.strong = 0.8 * strong;
-        p.core = 1.0;
-        p.confinement = 1.0;
-        p.damping = 0.15;
+        p.core = 1.0 * exclude;
+        p.confinement = 1.0 * trap;
+        p.damping = 0.15 * drag;
         break;
     case Scale::MOLECULAR:
-        // Covalent bonds: a deep binding well at a characteristic distance holds
-        // stable molecules together.
         p.charge = 0.20 * em;
-        p.strong = 2.2 * strong;
-        p.core = 0.85;
-        p.bond_range = 1.15;
+        p.strong = 2.2 * strong * bind;
+        p.core = 0.85 * exclude;
+        p.bond_range = 1.15 * bond_d;
         p.bond_width = 0.5;
-        p.confinement = 0.9;
-        p.damping = 0.14;
+        p.confinement = 0.9 * trap;
+        p.damping = 0.14 * drag;
         break;
     case Scale::NANOSCALE:
-        // Colloidal aggregation: weak broad cohesion + damping makes dispersed
-        // grains clump together over time.
         p.gravity = 0.12;
         p.strong = 0.6 * strong;
-        p.core = 0.6;
-        p.bond_range = 1.5;
+        p.core = 0.6 * exclude;
+        p.bond_range = 1.5 * bond_d;
         p.bond_width = 0.95;
-        p.confinement = 0.7;
-        p.damping = 0.24;
+        p.confinement = 0.7 * trap;
+        p.damping = 0.24 * drag;
         break;
     case Scale::PLANETARY:
-        // Accretion + orbits: gravity with collisions, low damping so orbital
-        // motion persists.
         p.gravity = 1.3 * grav;
-        p.core = 0.95;
-        p.confinement = 0.9;
-        p.damping = 0.06;
+        p.core = 0.95 * exclude;
+        p.confinement = 0.9 * trap;
+        p.damping = 0.06 * drag;
         break;
     case Scale::STELLAR:
-        // Gravitational N-body cluster: nearly conservative; bodies orbit and the
-        // cluster virializes.
         p.gravity = 1.4 * grav;
-        p.core = 0.7;
-        p.confinement = 0.8;
-        p.damping = 0.03;
+        p.core = 0.7 * exclude;
+        p.confinement = 0.8 * trap;
+        p.damping = 0.03 * drag;
         break;
     case Scale::GALACTIC:
-        // Rotating disk: gravity plus a sustained swirl forcing yields a
-        // flattened, rotating structure (a stand-in for a dark-matter halo).
         p.gravity = 1.2 * grav;
-        p.core = 0.55;
-        p.swirl = 0.6;
-        p.confinement = 0.7;
-        p.damping = 0.04;
+        p.core = 0.55 * exclude;
+        p.swirl = 0.6 * spin;
+        p.confinement = 0.7 * trap;
+        p.damping = 0.04 * drag;
         break;
     case Scale::COSMIC:
-        // Expanding web: weak trap lets the Hubble-like initial expansion stretch
-        // structure into filaments and clusters before gravity reins it in.
         p.gravity = 1.0 * grav;
-        p.core = 0.4;
-        p.confinement = 0.35;
-        p.damping = 0.02;
+        p.core = 0.4 * exclude;
+        p.confinement = 0.35 * trap;
+        p.damping = 0.02 * drag;
         break;
     case Scale::COUNT:
         break;

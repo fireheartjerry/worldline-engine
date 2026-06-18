@@ -184,6 +184,31 @@ void test_cosmos_bookmark_reproduction() {
     }
 }
 
+void test_cosmos_bookmark_delete() {
+    CosmosBookmark a;
+    a.id = "del-a";
+    a.seed = "s";
+    a.created_at = "2024-01-01 00:00:01";
+    CosmosBookmark b = a;
+    b.id = "del-b";
+    b.created_at = "2024-01-01 00:00:02";
+    require(Storage::save_cosmos_bookmark(a) && Storage::save_cosmos_bookmark(b),
+            "two bookmarks must save");
+
+    require(Storage::delete_cosmos_bookmark("del-a"), "delete must report success");
+    const std::vector<CosmosBookmark> left = Storage::load_cosmos_bookmarks();
+    bool has_a = false;
+    bool has_b = false;
+    for (const CosmosBookmark& m : left) {
+        if (m.id == "del-a") has_a = true;
+        if (m.id == "del-b") has_b = true;
+    }
+    require(!has_a, "deleted bookmark must be gone");
+    require(has_b, "other bookmarks must remain");
+    require(!Storage::delete_cosmos_bookmark("does-not-exist"),
+            "deleting a missing bookmark must fail gracefully");
+}
+
 } // namespace
 
 int main() {
@@ -201,6 +226,7 @@ int main() {
     test_corrupt_project_does_not_crash();
     test_corrupt_settings_does_not_crash();
     test_cosmos_bookmark_reproduction();
+    test_cosmos_bookmark_delete();
 
     std::filesystem::remove_all(sandbox);
     return 0;

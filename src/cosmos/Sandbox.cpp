@@ -124,8 +124,17 @@ void populate_sandbox(NBodySystem& sys,
         total_mass += b.mass;
     }
 
-    // Tier-specific initial velocities.
+    // Tier-specific initial velocities, with genome-derived magnitudes so the
+    // amount of spin, expansion and orbital support varies per universe.
+    auto norm = [](double v, double lo, double hi) {
+        return std::clamp((v - lo) / (hi - lo), 0.0, 1.0);
+    };
+    const double driftN = norm(genome.cosmological_drift, 0.70, 1.50);
+    const double gravN = norm(genome.coupling_gravity, 0.40, 1.70);
     const double drift_sign = (genome.cosmological_drift > 1.0) ? 1.0 : -1.0;
+    const double orbit_k = 0.38 * (0.90 + 0.25 * gravN);  // orbital support
+    const double spin_speed = 1.5 * (0.70 + 0.80 * driftN); // [1.05,2.25]
+    const double expand_k = 0.45 + 0.35 * driftN;          // [0.45,0.80]
     for (Body& b : sys.bodies) {
         const double r = b.pos.length();
         const Vec2 tang = (r > 1.0e-3) ? Vec2{-b.pos.y / r, b.pos.x / r} : Vec2{0.0, 0.0};
@@ -137,7 +146,7 @@ void populate_sandbox(NBodySystem& sys,
         case Scale::PLANETARY:
         case Scale::STELLAR:
             // Orbital support: Keplerian-ish circular speed with dispersion.
-            b.vel = tang * (drift_sign * 0.32 *
+            b.vel = tang * (drift_sign * orbit_k *
                             std::sqrt(sys.params.gravity * total_mass / std::max(r, 1.0)));
             if (scale == Scale::STELLAR) {
                 b.vel += Vec2{gaussian() * 0.25, gaussian() * 0.25};
@@ -145,11 +154,11 @@ void populate_sandbox(NBodySystem& sys,
             break;
         case Scale::GALACTIC:
             // Flat rotation curve: near-constant tangential speed at all radii.
-            b.vel = tang * (drift_sign * 1.5);
+            b.vel = tang * (drift_sign * spin_speed);
             break;
         case Scale::COSMIC:
             // Hubble flow: outward velocity proportional to distance.
-            b.vel = b.pos * 0.55;
+            b.vel = b.pos * expand_k;
             break;
         default:
             break; // NUCLEAR, ATOMIC, MOLECULAR start at rest and settle
@@ -192,6 +201,68 @@ SandboxStats sandbox_stats(const NBodySystem& sys) {
         stats.finite = false;
     }
     return stats;
+}
+
+namespace {
+
+double mean_nearest_neighbor(const NBodySystem& sys) {
+    if (sys.bodies.size() < 2) {
+        return 0.0;
+    }
+    double total = 0.0;
+    for (std::size_t i = 0; i < sys.bodies.size(); ++i) {
+        double best = 1.0e300;
+        for (std::size_t j = 0; j < sys.bodies.size(); ++j) {
+            if (i == j) continue;
+            best = std::min(best, (sys.bodies[j].pos - sys.bodies[i].pos).length());
+        }
+        total += best;
+    }
+    return total / static_cast<double>(sys.bodies.size());
+}
+
+int close_pair_count(const NBodySystem& sys, double max_distance) {
+    int n = 0;
+    for (std::size_t i = 0; i < sys.bodies.size(); ++i) {
+        for (std::size_t j = i + 1; j < sys.bodies.size(); ++j) {
+            if ((sys.bodies[j].pos - sys.bodies[i].pos).length() <= max_distance) {
+                ++n;
+            }
+        }
+    }
+    return n;
+}
+
+double mean_radial_velocity(const NBodySystem& sys) {
+    if (sys.bodies.empty()) {
+        return 0.0;
+    }
+    double total = 0.0;
+    for (const Body& b : sys.bodies) {
+        const double r = b.pos.length();
+        if (r > 1.0e-6) {
+            total += b.pos.dot(b.vel) / r; // outward component
+        }
+    }
+    return total / static_cast<double>(sys.bodies.size());
+}
+
+} // namespace
+
+SignatureMetric tier_signature_metric(Scale scale, const NBodySystem& sys) {
+    switch (scale) {
+    case Scale::SUBATOMIC: return {"CONFINEMENT", sys.max_radius()};
+    case Scale::NUCLEAR:   return {"NUCLEON BONDS", static_cast<double>(close_pair_count(sys, 1.4))};
+    case Scale::ATOMIC:    return {"LATTICE SPACING", mean_nearest_neighbor(sys)};
+    case Scale::MOLECULAR: return {"MOLECULE BONDS", static_cast<double>(close_pair_count(sys, 2.8))};
+    case Scale::NANOSCALE: return {"AGGREGATION", mean_nearest_neighbor(sys)};
+    case Scale::PLANETARY: return {"ORBITAL L", std::abs(sys.angular_momentum())};
+    case Scale::STELLAR:   return {"BOUND PAIRS", static_cast<double>(sys.bound_pair_count())};
+    case Scale::GALACTIC:  return {"ROTATION L", std::abs(sys.angular_momentum())};
+    case Scale::COSMIC:    return {"EXPANSION", mean_radial_velocity(sys)};
+    case Scale::COUNT:     break;
+    }
+    return {"", 0.0};
 }
 
 } // namespace cosmos

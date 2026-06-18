@@ -31,6 +31,7 @@ struct CosmosState {
     int step_count = 0;      // fixed steps taken (drives exact reproduction)
     double accumulator = 0.0;
     double elapsed = 0.0;
+    bool browser_open = false; // saved-sandbox browser modal
 
     // Configure (or reconfigure) for a seed: build the genome + specialized
     // catalog. Cheap and deterministic.

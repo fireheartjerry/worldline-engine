@@ -40,4 +40,14 @@ struct SandboxStats {
 
 SandboxStats sandbox_stats(const NBodySystem& sys);
 
+// The single most characteristic live readout for a tier (rotation for galactic,
+// expansion for cosmic, bonds for molecular, ...). Surfaced in the Explorer's
+// observables panel and unit-tested per tier.
+struct SignatureMetric {
+    const char* label = "";
+    double value = 0.0;
+};
+
+SignatureMetric tier_signature_metric(Scale scale, const NBodySystem& sys);
+
 } // namespace cosmos

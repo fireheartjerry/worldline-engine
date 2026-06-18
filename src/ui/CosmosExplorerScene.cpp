@@ -59,6 +59,78 @@ void select_object_by_id(CosmosState& cosmos, const std::string& id) {
     }
 }
 
+void restore_bookmark(AppState& app, CosmosState& cosmos, const CosmosBookmark& b);
+
+void draw_browser_modal(AppState& app, CosmosState& cosmos, Rectangle viewport, float scale) {
+    // Dim everything behind the modal.
+    DrawRectangle(static_cast<int>(viewport.x), static_cast<int>(viewport.y),
+                  static_cast<int>(viewport.width), static_cast<int>(viewport.height),
+                  {2, 4, 9, 200});
+
+    const float w = std::min(viewport.width * 0.5f, 620.0f * scale);
+    const float h = std::min(viewport.height * 0.7f, 520.0f * scale);
+    const Rectangle modal = {viewport.x + (viewport.width - w) * 0.5f,
+                             viewport.y + (viewport.height - h) * 0.5f, w, h};
+    draw_card(modal, {7, 14, 26, 248}, with_alpha(WL::VIOLET_CORE, 150));
+    draw_text("SAVED SANDBOXES", {modal.x + 18.0f * scale, modal.y + 16.0f * scale},
+              17.0f * scale, WL::TEXT_PRIMARY);
+
+    // Close button.
+    const Rectangle close = {modal.x + modal.width - 38.0f * scale, modal.y + 14.0f * scale,
+                             24.0f * scale, 24.0f * scale};
+    if (draw_button(close, "x", {30, 18, 40, 235}, {60, 30, 70, 255}, WL::TEXT_PRIMARY, true, scale) ||
+        IsKeyPressed(KEY_ESCAPE)) {
+        cosmos.browser_open = false;
+    }
+
+    const std::vector<CosmosBookmark> marks = Storage::load_cosmos_bookmarks();
+    if (marks.empty()) {
+        draw_text_block("No saved sandboxes yet. Spawn a scale and press Save to bookmark it - it "
+                        "reopens to the exact same evolved state.",
+                        {modal.x + 18.0f * scale, modal.y + 56.0f * scale, modal.width - 36.0f * scale,
+                         80.0f * scale},
+                        14.0f * scale, WL::TEXT_TERTIARY, 4.0f * scale);
+        return;
+    }
+
+    const float list_top = modal.y + 50.0f * scale;
+    const float row_h = 54.0f * scale;
+    const int max_rows = static_cast<int>((modal.height - 62.0f * scale) / row_h);
+    const int shown = std::min(static_cast<int>(marks.size()), max_rows);
+    for (int i = 0; i < shown; ++i) {
+        const CosmosBookmark& b = marks[static_cast<std::size_t>(i)];
+        const Rectangle row = {modal.x + 14.0f * scale, list_top + row_h * i,
+                               modal.width - 28.0f * scale, row_h - 8.0f * scale};
+        const bool hot = CheckCollisionPointRec(GetMousePosition(), row);
+        DrawRectangleRounded(row, 0.12f, 6, hot ? Color{14, 30, 50, 240} : Color{8, 18, 32, 210});
+        DrawRectangleRoundedLines(row, 0.12f, 6, 1.0f, with_alpha(WL::GLASS_BORDER, 130));
+
+        const int idx = std::clamp(b.scale_index, 0, static_cast<int>(kScaleCount) - 1);
+        draw_text(b.title.empty() ? b.seed : b.title,
+                  {row.x + 12.0f * scale, row.y + 7.0f * scale}, 15.0f * scale, WL::TEXT_PRIMARY);
+        const std::string sub = std::string(scale_ladder()[idx].name) + "  -  seed '" + b.seed +
+                                "'  -  " + std::to_string(b.steps) + " steps  -  " + b.created_at;
+        draw_text(sub, {row.x + 12.0f * scale, row.y + 28.0f * scale}, 12.0f * scale,
+                  WL::TEXT_TERTIARY);
+
+        // Delete button on the right.
+        const Rectangle del = {row.x + row.width - 30.0f * scale, row.y + 8.0f * scale,
+                               22.0f * scale, 22.0f * scale};
+        if (draw_button(del, "x", {44, 16, 20, 235}, {90, 26, 30, 255}, WL::TEXT_SECONDARY, true,
+                        scale)) {
+            Storage::delete_cosmos_bookmark(b.id);
+            continue;
+        }
+        // Clicking the row (but not the delete button) restores the sandbox.
+        if (CheckCollisionPointRec(GetMousePosition(), row) &&
+            !CheckCollisionPointRec(GetMousePosition(), del) &&
+            IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            restore_bookmark(app, cosmos, b);
+            cosmos.browser_open = false;
+        }
+    }
+}
+
 void save_current_sandbox(const CosmosState& cosmos) {
     CosmosBookmark b;
     b.seed = cosmos.seed;
@@ -328,6 +400,22 @@ void draw_observables(const CosmosState& cosmos, Rectangle rect, float scale) {
     tile(0, 1, "ENERGY", fmt_fixed(sys.total_energy(), 1));
     tile(1, 1, "VIRIAL", fmt_fixed(sys.virial_ratio(), 2));
     tile(2, 1, "SPREAD", fmt_fixed(sys.rms_radius(), 2));
+
+    // Tier-specific signature metric — the headline reading for this scale.
+    const SignatureMetric sig = tier_signature_metric(cosmos.scale, sys);
+    const float sig_y = grid_y + 2.0f * (tile_h + 6.0f * scale) + 4.0f * scale;
+    const Rectangle bar = {rect.x + 12.0f * scale, sig_y, rect.width - 24.0f * scale, 30.0f * scale};
+    DrawRectangleRounded(bar, 0.18f, 6, {14, 28, 46, 235});
+    DrawRectangleRoundedLines(bar, 0.18f, 6, 1.1f, with_alpha(WL::XENON_CORE, 150));
+    DrawRectangle(static_cast<int>(bar.x + 2), static_cast<int>(bar.y + 4), 3,
+                  static_cast<int>(bar.height - 8), with_alpha(WL::XENON_CORE, 220));
+    draw_text(sig.label, {bar.x + 12.0f * scale, bar.y + 8.0f * scale}, 13.0f * scale,
+              with_alpha(WL::XENON_CORE, 220));
+    const std::string sig_val =
+        (std::abs(sig.value) >= 10.0) ? fmt_fixed(sig.value, 1) : fmt_fixed(sig.value, 2);
+    const Vector2 vs = measure_ui_text(sig_val, 17.0f * scale);
+    draw_text(sig_val, {bar.x + bar.width - vs.x - 12.0f * scale, bar.y + 6.0f * scale},
+              17.0f * scale, WL::TEXT_PRIMARY);
 }
 
 } // namespace
@@ -392,18 +480,15 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
                     WL::VIOLET_CORE, cosmos.has_sim, scale)) {
         save_current_sandbox(cosmos);
     }
-    if (draw_button(control_rect(4), "Load last", {22, 34, 58, 230}, {32, 50, 86, 255},
+    if (draw_button(control_rect(4), "Saved...", {22, 34, 58, 230}, {32, 50, 86, 255},
                     WL::TEXT_PRIMARY, true, scale)) {
-        const auto bookmarks = Storage::load_cosmos_bookmarks();
-        if (!bookmarks.empty()) {
-            restore_bookmark(app, cosmos, bookmarks.front());
-        }
+        cosmos.browser_open = !cosmos.browser_open;
     }
 
     // ── Side columns ─────────────────────────────────────────────────────────
     draw_ladder(cosmos, ladder, scale);
 
-    const float obs_h = 122.0f * scale;
+    const float obs_h = 158.0f * scale;
     const Rectangle library = {panel.x, panel.y, panel.width, panel.height - obs_h - 10.0f * scale};
     const Rectangle observables = {panel.x, library.y + library.height + 10.0f * scale, panel.width,
                                    obs_h};
@@ -431,7 +516,7 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
         sprites.push_back(s);
     }
 
-    if (cosmos.has_sim) {
+    if (cosmos.has_sim && !cosmos.browser_open) {
         if (cosmos.running) {
             renderer.accumulate_field(sprites, stage, 24);
         }
@@ -450,6 +535,12 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
                         15.0f * scale, WL::TEXT_TERTIARY, 4.0f * scale);
     }
     DrawRectangleRoundedLines(stage, 0.02f, 12, 1.4f, with_alpha(WL::GLASS_BORDER, 150));
+
+    // Saved-sandbox browser overlay (drawn last; the field pass above is skipped
+    // while it is open, so nothing clips it).
+    if (cosmos.browser_open) {
+        draw_browser_modal(app, cosmos, viewport, scale);
+    }
 
     return result;
 }

@@ -511,4 +511,12 @@ std::vector<CosmosBookmark> load_cosmos_bookmarks() {
     return bookmarks;
 }
 
+bool delete_cosmos_bookmark(const std::string& id) {
+    if (id.empty()) {
+        return false;
+    }
+    std::error_code ec;
+    return std::filesystem::remove(cosmos_root() / (id + ".cosmos"), ec) && !ec;
+}
+
 } // namespace Storage
