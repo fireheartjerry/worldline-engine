@@ -46,27 +46,44 @@ The Newtonian pendulum is still included, but it is framed as a reference system
 
 ## Build
 
+Worldline builds on Windows, Linux, and macOS. CI validates all three.
+
+### Linux dependencies
+
+raylib is built from source and needs the usual desktop GL/X11 development
+headers. On Debian/Ubuntu:
+
+```bash
+sudo apt-get install libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+  libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev libxinerama-dev libxkbcommon-dev
+```
+
+macOS and Windows need no extra packages beyond CMake and a C++17 compiler.
+
 ### Configure
 
-```powershell
+```bash
 cmake --preset default
 ```
 
 ### Build
 
-```powershell
+```bash
 cmake --build build
 ```
 
 ### Run
 
-```powershell
+```bash
+# Windows
 .\build\worldline.exe
+# Linux / macOS
+./build/worldline
 ```
 
 ## Tests
 
-```powershell
+```bash
 ctest --test-dir build --output-on-failure
 ```
 
@@ -76,6 +93,15 @@ The current automated coverage includes:
 - generated physics verification
 - metaspec verification
 - app-layer persistence and atlas query verification
+- corrupt save-file recovery (malformed projects and settings)
+
+## Data location
+
+Saved universes and settings live in a per-user application data directory
+(`%APPDATA%\Worldline` on Windows, `~/Library/Application Support/Worldline` on
+macOS, `$XDG_DATA_HOME/worldline` or `~/.local/share/worldline` on Linux). Set
+the `WORLDLINE_DATA_DIR` environment variable to override this with a portable
+or custom location.
 
 ## Packaging
 

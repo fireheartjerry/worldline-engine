@@ -24,3 +24,7 @@ _deps/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local debug / scratch artifacts
+seed_debug.txt
+tree.txt
