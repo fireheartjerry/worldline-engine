@@ -427,6 +427,7 @@ PersistentAppSettings load_settings() {
         else if (starts_with(line, "last_screen=")) settings.last_screen = unescape_text(read_value(line));
         else if (starts_with(line, "window_width=")) settings.window_width = parse_int(read_value(line), settings.window_width);
         else if (starts_with(line, "window_height=")) settings.window_height = parse_int(read_value(line), settings.window_height);
+        else if (starts_with(line, "gpu_bloom=")) settings.gpu_bloom = parse_int(read_value(line), settings.gpu_bloom ? 1 : 0) != 0;
         else if (starts_with(line, "recent_project=")) settings.recent_project_ids.push_back(unescape_text(read_value(line)));
     }
     return settings;
@@ -442,6 +443,7 @@ void save_settings(const PersistentAppSettings& settings) {
     write_key_value(out, "last_screen", settings.last_screen);
     write_key_value(out, "window_width", settings.window_width);
     write_key_value(out, "window_height", settings.window_height);
+    write_key_value(out, "gpu_bloom", settings.gpu_bloom);
     for (const std::string& id : settings.recent_project_ids) {
         write_key_value(out, "recent_project", id);
     }

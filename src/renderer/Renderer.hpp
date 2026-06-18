@@ -1,5 +1,6 @@
 #pragma once
 #include "raylib.h"
+#include "GpuBloom.hpp"
 #include "SceneLayout.hpp"
 #include "Trail.hpp"
 #include "VectorOverlay.hpp"
@@ -10,13 +11,29 @@
 
 class Renderer {
 public:
-    Renderer(int w, int h) { resize_texture(w, h); }
+    Renderer(int w, int h) {
+        resize_texture(w, h);
+        bloom_.load();
+    }
 
-    ~Renderer() {
+    ~Renderer() { release(); }
+
+    // Free all GPU resources. Must be called while the GL context is still
+    // alive (i.e. before CloseWindow); the destructor calls it again, but it is
+    // idempotent so the second call is a no-op.
+    void release() {
         if (has_texture) {
             UnloadRenderTexture(trail_tex);
+            has_texture = false;
         }
+        bloom_.unload();
     }
+
+    // Toggle the GPU bloom post-process. When disabled (or when the shaders
+    // failed to compile) the renderer falls back to the plain CPU trail.
+    void set_bloom_enabled(bool enabled) { bloom_enabled_ = enabled; }
+    bool bloom_enabled() const { return bloom_enabled_; }
+    bool bloom_available() const { return bloom_.ready(); }
 
     void ensure_size(int w, int h) {
         if (w != width || h != height) {
@@ -147,6 +164,13 @@ public:
         const float r1 = bob_radius(params.m1);
         const float r2 = bob_radius(params.m2);
 
+        // Build the GPU glow from the trail texture before the scene draw so the
+        // ping-pong texture passes happen outside the canvas scissor region.
+        const bool use_bloom = bloom_enabled_ && bloom_.ready();
+        if (use_bloom) {
+            bloom_.generate(trail_tex.texture);
+        }
+
         draw_canvas_background(layout);
 
         BeginScissorMode(
@@ -158,6 +182,11 @@ public:
 
         const Rectangle src = {0.0f, 0.0f, static_cast<float>(width), -static_cast<float>(height)};
         DrawTextureRec(trail_tex.texture, src, {0.0f, 0.0f}, ColorAlpha(WHITE, 0.96f));
+        if (use_bloom) {
+            bloom_.composite({0.0f, 0.0f,
+                              static_cast<float>(width),
+                              static_cast<float>(height)});
+        }
 
         draw_grid(layout, simulation.reach());
         draw_connectors(simulation, layout, b1, b2);
@@ -177,6 +206,8 @@ private:
     int height = 0;
     bool has_texture = false;
     RenderTexture2D trail_tex{};
+    GpuBloom bloom_;
+    bool bloom_enabled_ = true;
 
     void resize_texture(int w, int h) {
         if (has_texture) {
@@ -187,6 +218,7 @@ private:
         trail_tex = LoadRenderTexture(width, height);
         has_texture = true;
         reset_trail();
+        bloom_.resize(width, height);
     }
 
     Color omega_to_color(double omega) const {

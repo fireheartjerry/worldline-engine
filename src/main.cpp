@@ -23,6 +23,7 @@ int main() {
     init_ui_font();
 
     Renderer renderer(GetScreenWidth(), GetScreenHeight());
+    renderer.set_bloom_enabled(boot_settings.gpu_bloom);
     AppState app;
     app.settings = boot_settings;
     app.catalog = Storage::load_catalog();
@@ -305,6 +306,7 @@ int main() {
     app.settings.window_height = GetScreenHeight();
     Storage::save_settings(app.settings);
 
+    renderer.release();
     shutdown_ui_font();
     CloseWindow();
     return 0;

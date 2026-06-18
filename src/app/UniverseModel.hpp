@@ -78,4 +78,5 @@ struct PersistentAppSettings {
     std::string last_screen = "GuidedFirstUniverse";
     int window_width = 1480;
     int window_height = 920;
+    bool gpu_bloom = true;
 };
