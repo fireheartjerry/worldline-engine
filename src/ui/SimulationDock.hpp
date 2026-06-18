@@ -53,17 +53,20 @@ inline SimulationDockResult draw_simulation_dock(const AppState& app,
     const float iw   = dock.width - 26.0f * s; // inner width
 
     // ── Card ─────────────────────────────────────────────────────────────────
-    draw_card(dock, WL::GLASS_1, with_alpha(WL::CYAN_DIM, 95));
-
-    // Top accent line
-    DrawLineEx({dock.x + 4, dock.y + 1}, {dock.x + dock.width - 4, dock.y + 1},
-               1.5f, with_alpha(WL::CYAN_CORE, 60));
+    draw_card(dock, WL::GLASS_1, with_alpha(WL::CYAN_DIM, 120));
+    draw_corner_brackets(dock, with_alpha(WL::CYAN_CORE, 160), 11.0f * s, 1.5f, 4.0f * s);
 
     // ── Header ────────────────────────────────────────────────────────────────
     draw_text("REFERENCE SYSTEM",
               {ix, dock.y + 11.0f * s},
               12.0f * s,
               with_alpha(WL::CYAN_CORE, 180));
+    // Live pulse dot when the system is running
+    if (app.mode == RunMode::RUNNING) {
+        const float p = 0.5f + 0.5f * std::sin(ui_time() * 3.0f);
+        DrawCircleV({dock.x + dock.width - 16.0f * s, dock.y + 16.0f * s}, 3.2f * s,
+                    with_alpha(WL::PLASMA_GREEN, static_cast<unsigned char>(140 + 110 * p)));
+    }
 
     // ── Status badges ─────────────────────────────────────────────────────────
     draw_badge({ix, dock.y + 30.0f * s, 74.0f * s, 22.0f * s},
