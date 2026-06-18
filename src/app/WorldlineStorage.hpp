@@ -20,6 +20,11 @@ std::vector<std::size_t> query_catalog(const CatalogIndex& catalog, const Catalo
 PersistentAppSettings load_settings();
 void save_settings(const PersistentAppSettings& settings);
 
+std::filesystem::path cosmos_root();
+bool save_cosmos_bookmark(const CosmosBookmark& bookmark);
+std::vector<CosmosBookmark> load_cosmos_bookmarks(); // newest first
+bool delete_cosmos_bookmark(const std::string& id);
+
 std::string make_project_id(const std::string& seed);
 std::string now_timestamp();
 

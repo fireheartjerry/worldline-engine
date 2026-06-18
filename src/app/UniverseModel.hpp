@@ -70,6 +70,18 @@ struct GlossaryEntry {
     const char* detail = "";
 };
 
+// A saved Cosmos sandbox. Because spawning and stepping are deterministic, the
+// evolved state is fully reproduced from (seed, scale_index, steps) — no need to
+// store body positions.
+struct CosmosBookmark {
+    std::string id;
+    std::string title;
+    std::string seed;
+    int scale_index = 0;
+    int steps = 0;
+    std::string created_at;
+};
+
 struct PersistentAppSettings {
     std::string last_seed = "worldline";
     std::string last_project_id;
@@ -78,4 +90,5 @@ struct PersistentAppSettings {
     std::string last_screen = "GuidedFirstUniverse";
     int window_width = 1480;
     int window_height = 920;
+    bool gpu_bloom = true;
 };

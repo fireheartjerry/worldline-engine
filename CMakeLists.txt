@@ -39,6 +39,21 @@ target_include_directories(worldline_physics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/
 target_link_libraries(worldline_physics PUBLIC worldline_seed)
 worldline_apply_warnings(worldline_physics)
 
+add_library(worldline_cosmos
+    src/cosmos/LawGenome.cpp
+    src/cosmos/ScaleLadder.cpp
+    src/cosmos/ObjectCatalog.cpp
+    src/cosmos/NBodySystem.cpp
+    src/cosmos/Sandbox.cpp
+    src/cosmos/Analysis.cpp
+    src/cosmos/Universe.cpp
+    src/cosmos/ObserverFleet.cpp
+    src/cosmos/Nav3D.cpp
+)
+target_include_directories(worldline_cosmos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos PUBLIC worldline_seed)
+worldline_apply_warnings(worldline_cosmos)
+
 add_library(worldline_app
     src/app/AppTypes.cpp
     src/app/SeededUniverseRuntime.cpp
@@ -47,18 +62,19 @@ add_library(worldline_app
     src/app/WorldlineStorage.cpp
 )
 target_include_directories(worldline_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(worldline_app PUBLIC worldline_seed worldline_physics)
+target_link_libraries(worldline_app PUBLIC worldline_seed worldline_physics worldline_cosmos)
 worldline_apply_warnings(worldline_app)
 
 add_executable(worldline
     src/main.cpp
+    src/ui/CosmosExplorerScene.cpp
     src/ui/GuidedFirstUniverseScene.cpp
     src/ui/SeedWorkspaceScene.cpp
     src/ui/TraceScene.cpp
     src/ui/UniverseAtlasScene.cpp
 )
 target_include_directories(worldline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(worldline raylib worldline_app)
+target_link_libraries(worldline raylib worldline_app worldline_cosmos)
 worldline_apply_warnings(worldline)
 
 add_executable(worldline_physics_tests tests/physics_verification.cpp)
@@ -84,6 +100,24 @@ target_include_directories(worldline_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 target_link_libraries(worldline_app_tests PRIVATE worldline_app)
 worldline_apply_warnings(worldline_app_tests)
 add_test(NAME app_verification COMMAND worldline_app_tests)
+
+add_executable(worldline_cosmos_tests tests/cosmos_verification.cpp)
+target_include_directories(worldline_cosmos_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_tests)
+add_test(NAME cosmos_verification COMMAND worldline_cosmos_tests)
+
+add_executable(worldline_cosmos_tiers_tests tests/cosmos_tiers_verification.cpp)
+target_include_directories(worldline_cosmos_tiers_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_tiers_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_tiers_tests)
+add_test(NAME cosmos_tiers_verification COMMAND worldline_cosmos_tiers_tests)
+
+add_executable(worldline_cosmos_universe_tests tests/cosmos_universe_verification.cpp)
+target_include_directories(worldline_cosmos_universe_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_universe_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_universe_tests)
+add_test(NAME cosmos_universe_verification COMMAND worldline_cosmos_universe_tests)
 
 install(TARGETS worldline RUNTIME DESTINATION .)
 install(FILES README.md LICENSE DESTINATION .)
