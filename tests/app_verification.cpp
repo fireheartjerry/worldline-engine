@@ -1,12 +1,18 @@
 #include "app/SeededUniverseRuntime.hpp"
 #include "app/UniverseProject.hpp"
 #include "app/WorldlineStorage.hpp"
+#include "cosmos/LawGenome.hpp"
+#include "cosmos/NBodySystem.hpp"
+#include "cosmos/ObjectCatalog.hpp"
+#include "cosmos/Sandbox.hpp"
+#include "cosmos/ScaleLadder.hpp"
 
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -131,6 +137,53 @@ void test_corrupt_settings_does_not_crash() {
     require(loaded.window_height > 0, "window height falls back to a positive default");
 }
 
+void test_cosmos_bookmark_reproduction() {
+    using namespace cosmos;
+    std::vector<UniverseObject> catalog = build_object_catalog();
+    const LawGenome genome = generate_law_genome(std::string("bookmark-seed"));
+    apply_law_genome(catalog, genome);
+
+    NBodySystem ref;
+    populate_sandbox(ref, catalog, genome, Scale::STELLAR);
+    const int steps = 250;
+    advance_sandbox(ref, steps);
+
+    CosmosBookmark bookmark;
+    bookmark.id = "test-bookmark";
+    bookmark.title = "Stellar test";
+    bookmark.seed = "bookmark-seed";
+    bookmark.scale_index = static_cast<int>(scale_index(Scale::STELLAR));
+    bookmark.steps = steps;
+    bookmark.created_at = Storage::now_timestamp();
+    require(Storage::save_cosmos_bookmark(bookmark), "cosmos bookmark must save");
+
+    const std::vector<CosmosBookmark> loaded = Storage::load_cosmos_bookmarks();
+    const CosmosBookmark* got = nullptr;
+    for (const CosmosBookmark& b : loaded) {
+        if (b.id == "test-bookmark") {
+            got = &b;
+        }
+    }
+    require(got != nullptr, "saved cosmos bookmark must load back");
+    require(got->seed == bookmark.seed && got->steps == steps &&
+                got->scale_index == bookmark.scale_index,
+            "cosmos bookmark fields must round-trip");
+
+    // Reproduce the sandbox from the bookmark and compare to the original state.
+    std::vector<UniverseObject> catalog2 = build_object_catalog();
+    const LawGenome genome2 = generate_law_genome(got->seed);
+    apply_law_genome(catalog2, genome2);
+    NBodySystem rep;
+    populate_sandbox(rep, catalog2, genome2, static_cast<Scale>(got->scale_index));
+    advance_sandbox(rep, got->steps);
+    require(rep.bodies.size() == ref.bodies.size(), "reproduced body count must match");
+    for (std::size_t i = 0; i < ref.bodies.size(); ++i) {
+        require(rep.bodies[i].pos.x == ref.bodies[i].pos.x &&
+                    rep.bodies[i].pos.y == ref.bodies[i].pos.y,
+                "reopened sandbox must reproduce the saved state exactly");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -147,6 +200,7 @@ int main() {
     test_settings_round_trip();
     test_corrupt_project_does_not_crash();
     test_corrupt_settings_does_not_crash();
+    test_cosmos_bookmark_reproduction();
 
     std::filesystem::remove_all(sandbox);
     return 0;

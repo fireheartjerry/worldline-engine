@@ -22,6 +22,9 @@ struct ForceParams {
     double core_power = 6.0;  // steepness of the exclusion core
     double accel_cap = 80.0;  // clamp on |acceleration| for stability
     double damping = 0.0;     // velocity damping per unit time (0 = conservative)
+    double confinement = 0.0; // harmonic pull toward the origin (keeps the cloud
+                              // on-stage); a single-body force, so it is excluded
+                              // from the conservative energy/momentum tests.
 };
 
 // Build tier-appropriate force coefficients from a universe's law genome.

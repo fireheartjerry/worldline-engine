@@ -22,11 +22,14 @@ struct CosmosState {
     std::vector<cosmos::UniverseObject> catalog;
 
     cosmos::Scale scale = cosmos::Scale::STELLAR;
-    int selected_object = 0; // index within the current tier's object list
+    int selected_object = 0;  // index within the current tier's object list
+    int compare_object = -1;  // second object for comparison, -1 = none
 
     cosmos::NBodySystem system;
     bool has_sim = false;
     bool running = false;
+    int step_count = 0;      // fixed steps taken (drives exact reproduction)
+    double accumulator = 0.0;
     double elapsed = 0.0;
 
     // Configure (or reconfigure) for a seed: build the genome + specialized

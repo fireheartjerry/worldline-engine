@@ -237,7 +237,7 @@ void apply_law_genome(std::vector<UniverseObject>& catalog, const LawGenome& gen
         o.abundance = saturate(o.stability * (0.5 + 0.5 * frac(o.id, 4)) * (1.0 - 0.4 * mass_norm));
 
         o.sim_mass = map_range(log_mass(o.rest_mass_kg), rg.lm_lo, rg.lm_hi, 0.8, 5.0);
-        o.sim_radius = map_range(log_radius(o.radius_m), rg.lr_lo, rg.lr_hi, 0.5, 2.0);
+        o.sim_radius = map_range(log_radius(o.radius_m), rg.lr_lo, rg.lr_hi, 0.3, 1.1);
         o.sim_charge = std::clamp(o.charge_e * (0.6 * genome.coupling_em), -3.0, 3.0);
 
         const Color8 base = scale_palette(o.scale);

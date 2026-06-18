@@ -44,6 +44,8 @@ add_library(worldline_cosmos
     src/cosmos/ScaleLadder.cpp
     src/cosmos/ObjectCatalog.cpp
     src/cosmos/NBodySystem.cpp
+    src/cosmos/Sandbox.cpp
+    src/cosmos/Analysis.cpp
 )
 target_include_directories(worldline_cosmos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(worldline_cosmos PUBLIC worldline_seed)

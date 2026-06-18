@@ -1,19 +1,20 @@
 #include "ui/CosmosExplorerScene.hpp"
 
+#include "app/WorldlineStorage.hpp"
+#include "cosmos/Analysis.hpp"
+#include "cosmos/Sandbox.hpp"
 #include "renderer/Renderer.hpp"
 #include "ui/UiPrimitives.hpp"
 
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
 #include <cstdio>
 
 using namespace cosmos;
 
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
-constexpr double kWorldHalf = 9.0;
+constexpr double kWorldHalf = 12.0;
 
 std::string fmt_sci(double v) {
     char buf[40];
@@ -32,8 +33,57 @@ bool clicked(Rectangle r) {
            IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
 }
 
+bool right_clicked(Rectangle r) {
+    return CheckCollisionPointRec(GetMousePosition(), r) &&
+           IsMouseButtonPressed(MOUSE_RIGHT_BUTTON);
+}
+
 Color to_raylib(Color8 c) {
     return Color{c.r, c.g, c.b, 255};
+}
+
+// Jump the library to a specific object by id (used by constituent navigation),
+// switching tiers if needed.
+void select_object_by_id(CosmosState& cosmos, const std::string& id) {
+    const UniverseObject* target = find_object(cosmos.catalog, id);
+    if (target == nullptr) {
+        return;
+    }
+    cosmos.set_scale(target->scale);
+    const auto objs = objects_for_scale(cosmos.catalog, target->scale);
+    for (std::size_t i = 0; i < objs.size(); ++i) {
+        if (objs[i]->id == id) {
+            cosmos.selected_object = static_cast<int>(i);
+            break;
+        }
+    }
+}
+
+void save_current_sandbox(const CosmosState& cosmos) {
+    CosmosBookmark b;
+    b.seed = cosmos.seed;
+    b.scale_index = static_cast<int>(scale_index(cosmos.scale));
+    b.steps = cosmos.step_count;
+    b.id = Storage::make_project_id(cosmos.seed) + "-s" + std::to_string(b.scale_index);
+    b.title = std::string(tier_for(cosmos.scale).name) + " @ " + cosmos.seed;
+    b.created_at = Storage::now_timestamp();
+    Storage::save_cosmos_bookmark(b);
+}
+
+// Reproduce a saved sandbox exactly: re-spawn deterministically and replay the
+// recorded number of fixed steps.
+void restore_bookmark(AppState& app, CosmosState& cosmos, const CosmosBookmark& b) {
+    app.ui.seeded.seed_input = b.seed;
+    cosmos.configure(b.seed);
+    const int idx = std::clamp(b.scale_index, 0, static_cast<int>(kScaleCount) - 1);
+    cosmos.set_scale(static_cast<Scale>(idx));
+    populate_sandbox(cosmos.system, cosmos.catalog, cosmos.genome, cosmos.scale);
+    advance_sandbox(cosmos.system, std::max(0, b.steps));
+    cosmos.has_sim = !cosmos.system.bodies.empty();
+    cosmos.running = false;
+    cosmos.step_count = std::max(0, b.steps);
+    cosmos.accumulator = 0.0;
+    cosmos.elapsed = cosmos.step_count * kSandboxDt;
 }
 
 } // namespace
@@ -45,114 +95,47 @@ void CosmosState::configure(const std::string& seed_text) {
     apply_law_genome(catalog, genome);
     initialized = true;
     selected_object = 0;
+    compare_object = -1;
     clear_sim();
 }
 
 void CosmosState::set_scale(Scale next) {
     scale = next;
     selected_object = 0;
+    compare_object = -1;
 }
 
 void CosmosState::clear_sim() {
     system.bodies.clear();
     has_sim = false;
     running = false;
+    step_count = 0;
+    accumulator = 0.0;
     elapsed = 0.0;
 }
 
 void CosmosState::spawn() {
     clear_sim();
-    const ScaleTier& tier = tier_for(scale);
-    system.params = make_force_params(tier, genome);
-
-    const auto objs = objects_for_scale(catalog, scale);
-    if (objs.empty()) {
-        return;
-    }
-
-    // Deterministic xorshift seeded by the universe + tier.
-    std::uint64_t rng = genome.signature ^ (0x9E3779B97F4A7C15ull * (scale_index(scale) + 1));
-    if (rng == 0) {
-        rng = 0x1234567811111111ull;
-    }
-    auto next = [&]() {
-        rng ^= rng << 13;
-        rng ^= rng >> 7;
-        rng ^= rng << 17;
-        return rng;
-    };
-    auto frand = [&]() { return static_cast<double>(next() % 1000000ull) / 1000000.0; };
-
-    const bool gravity_tier = tier.gravity_weight > 0.5;
-    const int count = 90;
-
-    double total_ab = 0.0;
-    for (const UniverseObject* o : objs) {
-        total_ab += std::max(0.05, o->abundance);
-    }
-    auto pick = [&]() -> const UniverseObject* {
-        double r = frand() * total_ab;
-        for (const UniverseObject* o : objs) {
-            r -= std::max(0.05, o->abundance);
-            if (r <= 0.0) {
-                return o;
-            }
-        }
-        return objs.back();
-    };
-
-    double total_mass = 0.0;
-    for (int i = 0; i < count; ++i) {
-        const UniverseObject* o = pick();
-        Body b;
-        b.mass = o->sim_mass;
-        b.radius = o->sim_radius;
-        b.charge = o->sim_charge;
-        b.color = o->color;
-        b.type = static_cast<int>(static_cast<std::size_t>(
-            std::find(objs.begin(), objs.end(), o) - objs.begin()));
-        if (gravity_tier) {
-            const double ang = frand() * 2.0 * kPi;
-            const double rad = std::sqrt(frand()) * 5.5;
-            b.pos = {rad * std::cos(ang), rad * std::sin(ang)};
-        } else {
-            b.pos = {(frand() * 2.0 - 1.0) * 4.5, (frand() * 2.0 - 1.0) * 4.5};
-        }
-        b.vel = {0.0, 0.0};
-        system.bodies.push_back(b);
-        total_mass += b.mass;
-    }
-
-    if (gravity_tier && total_mass > 0.0) {
-        const double sign = (genome.cosmological_drift > 1.0) ? 1.0 : -1.0;
-        for (Body& b : system.bodies) {
-            const double r = b.pos.length();
-            if (r > 1.0e-3) {
-                const Vec2 tang = {-b.pos.y / r, b.pos.x / r};
-                const double speed =
-                    0.30 * std::sqrt(system.params.gravity * total_mass / std::max(r, 1.0));
-                b.vel = tang * (speed * sign);
-            }
-        }
-        // Remove net drift so the cluster stays centered on the stage.
-        const Vec2 com_vel = system.total_momentum() / total_mass;
-        for (Body& b : system.bodies) {
-            b.vel -= com_vel;
-        }
-    }
-
-    has_sim = true;
-    running = true;
-    elapsed = 0.0;
+    populate_sandbox(system, catalog, genome, scale);
+    has_sim = !system.bodies.empty();
+    running = has_sim;
 }
 
 void step_cosmos(CosmosState& cosmos, float frame_time) {
     if (!cosmos.has_sim || !cosmos.running) {
         return;
     }
-    const double dt = std::min(static_cast<double>(frame_time), 1.0 / 30.0);
-    cosmos.system.step(dt, 4);
-    cosmos.elapsed += dt;
+    // Fixed-step accumulator: deterministic and frame-rate independent, so the
+    // sandbox can be reproduced exactly from its step count.
+    cosmos.accumulator += std::min(static_cast<double>(frame_time), 0.05);
+    int steps = 0;
+    while (cosmos.accumulator >= kSandboxDt && steps < 8) {
+        advance_sandbox(cosmos.system, 1);
+        cosmos.accumulator -= kSandboxDt;
+        ++cosmos.step_count;
+        ++steps;
+    }
+    cosmos.elapsed = cosmos.step_count * kSandboxDt;
 }
 
 namespace {
@@ -224,6 +207,8 @@ void draw_inspector(const CosmosState& cosmos, Rectangle rect, float scale) {
                              0.5f, 4, with_alpha(WL::PLASMA_GREEN, 150));
         if (clicked(row)) {
             const_cast<CosmosState&>(cosmos).selected_object = static_cast<int>(i);
+        } else if (right_clicked(row)) {
+            const_cast<CosmosState&>(cosmos).compare_object = static_cast<int>(i);
         }
     }
 
@@ -259,6 +244,59 @@ void draw_inspector(const CosmosState& cosmos, Rectangle rect, float scale) {
     tile(1, 1, "CHARGE (e)", fmt_fixed(o.charge_e, 2));
     tile(0, 2, "STABILITY", fmt_fixed(o.stability, 2));
     tile(1, 2, "BINDING", fmt_fixed(o.binding, 2));
+
+    float y = grid_y + 3.0f * (tile_h + 6.0f * scale) + 4.0f * scale;
+
+    // Constituents — what this object is built from (clickable to navigate).
+    const auto parts = resolve_constituents(cosmos.catalog, o);
+    if (!parts.empty()) {
+        draw_text("BUILT FROM", {rect.x + 14.0f * scale, y}, 11.5f * scale,
+                  with_alpha(WL::CYAN_CORE, 180));
+        y += 18.0f * scale;
+        float chip_x = rect.x + 14.0f * scale;
+        for (const ConstituentRef& part : parts) {
+            const float w = measure_ui_text(part.name, 12.0f * scale).x + 16.0f * scale;
+            if (chip_x + w > rect.x + rect.width - 14.0f * scale) {
+                chip_x = rect.x + 14.0f * scale;
+                y += 24.0f * scale;
+            }
+            const Rectangle chip = {chip_x, y, w, 20.0f * scale};
+            const bool hot = part.object && CheckCollisionPointRec(GetMousePosition(), chip);
+            DrawRectangleRounded(chip, 0.5f, 6,
+                                 hot ? Color{16, 38, 60, 235} : Color{8, 18, 32, 200});
+            draw_text(part.name, {chip_x + 8.0f * scale, y + 3.0f * scale}, 12.0f * scale,
+                      part.object ? WL::TEXT_SECONDARY : WL::TEXT_TERTIARY);
+            if (part.object && clicked(chip)) {
+                select_object_by_id(const_cast<CosmosState&>(cosmos), part.id);
+            }
+            chip_x += w + 6.0f * scale;
+        }
+        y += 28.0f * scale;
+    }
+
+    // Comparison — right-click any object in the list to compare against it.
+    const auto all = objects_for_scale(cosmos.catalog, cosmos.scale);
+    if (cosmos.compare_object >= 0 && cosmos.compare_object < static_cast<int>(all.size()) &&
+        cosmos.compare_object != sel) {
+        const UniverseObject& other = *all[static_cast<std::size_t>(cosmos.compare_object)];
+        const ObjectComparison cmp = compare_objects(o, other);
+        draw_text("COMPARED TO " + other.name, {rect.x + 14.0f * scale, y}, 11.5f * scale,
+                  with_alpha(WL::XENON_CORE, 200));
+        y += 18.0f * scale;
+        const std::string line1 =
+            "mass x" + fmt_fixed(cmp.mass_ratio, 2) + "  (" +
+            (cmp.mass_orders >= 0 ? "+" : "") + std::to_string(cmp.mass_orders) + " orders)";
+        const std::string line2 =
+            "radius x" + fmt_fixed(cmp.radius_ratio, 2) +
+            "   stability " + (cmp.stability_delta >= 0 ? "+" : "") +
+            fmt_fixed(cmp.stability_delta, 2);
+        draw_text(line1, {rect.x + 14.0f * scale, y}, 12.5f * scale, WL::TEXT_SECONDARY);
+        draw_text(line2, {rect.x + 14.0f * scale, y + 16.0f * scale}, 12.5f * scale,
+                  WL::TEXT_SECONDARY);
+    } else {
+        draw_text("right-click an object to compare", {rect.x + 14.0f * scale, y},
+                  11.5f * scale, with_alpha(WL::TEXT_TERTIARY, 180));
+    }
 }
 
 void draw_observables(const CosmosState& cosmos, Rectangle rect, float scale) {
@@ -334,21 +372,32 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
 
     // ── Controls ─────────────────────────────────────────────────────────────
     const float btn_gap = 8.0f * scale;
-    const float btn_w = (controls.width - btn_gap * 2.0f) / 3.0f;
-    if (draw_button({controls.x, controls.y, btn_w, controls.height},
-                    cosmos.has_sim ? "Re-spawn" : "Spawn",
+    const float btn_w = (controls.width - btn_gap * 4.0f) / 5.0f;
+    auto control_rect = [&](int i) {
+        return Rectangle{controls.x + i * (btn_w + btn_gap), controls.y, btn_w, controls.height};
+    };
+    if (draw_button(control_rect(0), cosmos.has_sim ? "Re-spawn" : "Spawn",
                     {10, 84, 98, 240}, {18, 126, 140, 255}, WL::CYAN_CORE, true, scale)) {
         cosmos.spawn();
     }
-    if (draw_button({controls.x + btn_w + btn_gap, controls.y, btn_w, controls.height},
-                    cosmos.running ? "Pause" : "Resume",
+    if (draw_button(control_rect(1), cosmos.running ? "Pause" : "Resume",
                     {18, 40, 36, 235}, {26, 70, 56, 255}, WL::PLASMA_GREEN, cosmos.has_sim, scale)) {
         cosmos.running = !cosmos.running;
     }
-    if (draw_button({controls.x + (btn_w + btn_gap) * 2.0f, controls.y, btn_w, controls.height},
-                    "Clear", {26, 30, 48, 228}, {38, 46, 70, 255}, WL::TEXT_PRIMARY,
-                    cosmos.has_sim, scale)) {
+    if (draw_button(control_rect(2), "Clear", {26, 30, 48, 228}, {38, 46, 70, 255},
+                    WL::TEXT_PRIMARY, cosmos.has_sim, scale)) {
         cosmos.clear_sim();
+    }
+    if (draw_button(control_rect(3), "Save", {30, 22, 60, 232}, {46, 32, 92, 255},
+                    WL::VIOLET_CORE, cosmos.has_sim, scale)) {
+        save_current_sandbox(cosmos);
+    }
+    if (draw_button(control_rect(4), "Load last", {22, 34, 58, 230}, {32, 50, 86, 255},
+                    WL::TEXT_PRIMARY, true, scale)) {
+        const auto bookmarks = Storage::load_cosmos_bookmarks();
+        if (!bookmarks.empty()) {
+            restore_bookmark(app, cosmos, bookmarks.front());
+        }
     }
 
     // ── Side columns ─────────────────────────────────────────────────────────

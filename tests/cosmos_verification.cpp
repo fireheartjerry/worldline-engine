@@ -1,6 +1,8 @@
+#include "cosmos/Analysis.hpp"
 #include "cosmos/LawGenome.hpp"
 #include "cosmos/NBodySystem.hpp"
 #include "cosmos/ObjectCatalog.hpp"
+#include "cosmos/Sandbox.hpp"
 #include "cosmos/ScaleLadder.hpp"
 
 #include <cmath>
@@ -64,7 +66,7 @@ void test_catalog_invariants() {
     for (std::size_t i = 0; i < a.size(); ++i) {
         require(a[i].sim_mass == b[i].sim_mass, "apply_law_genome must be deterministic");
         require(a[i].sim_mass >= 0.8 && a[i].sim_mass <= 5.0, "sim_mass conditioning bounds");
-        require(a[i].sim_radius >= 0.5 && a[i].sim_radius <= 2.0, "sim_radius conditioning bounds");
+        require(a[i].sim_radius >= 0.3 && a[i].sim_radius <= 1.1, "sim_radius conditioning bounds");
         require(a[i].stability >= 0.0 && a[i].stability <= 1.0, "stability in [0,1]");
         require(a[i].abundance >= 0.0 && a[i].abundance <= 1.0, "abundance in [0,1]");
         require(a[i].generated_mass > 0.0, "generated_mass must be positive");
@@ -116,7 +118,9 @@ void test_momentum_conservation_and_determinism() {
 
     NBodySystem sys;
     sys.params = make_force_params(tier, genome);
-    sys.params.accel_cap = 0.0; // disable cap so pairwise forces stay equal-and-opposite
+    sys.params.accel_cap = 0.0;    // disable cap so pairwise forces stay equal-and-opposite
+    sys.params.confinement = 0.0;  // external trap would break momentum conservation
+    sys.params.damping = 0.0;      // damping would bleed momentum
     const auto stars = objects_for_scale(catalog, Scale::STELLAR);
     for (int i = 0; i < 6; ++i) {
         const UniverseObject& o = *stars[static_cast<std::size_t>(i % stars.size())];
@@ -156,6 +160,95 @@ void test_momentum_conservation_and_determinism() {
     }
 }
 
+void test_all_tiers_stable() {
+    // Every tier, across several universes, must stay finite and bounded after a
+    // long run. Diagnostics are printed so the force law can be tuned per tier.
+    // Kept light for CI (Debug, O(N^2)); the live app runs more bodies.
+    const char* seeds[] = {"alpha", "vega-9"};
+    const int kTestBodies = 40;
+    for (std::size_t s = 0; s < kScaleCount; ++s) {
+        const Scale scale = static_cast<Scale>(s);
+        for (const char* seed : seeds) {
+            std::vector<UniverseObject> catalog = build_object_catalog();
+            const LawGenome genome = generate_law_genome(std::string(seed));
+            apply_law_genome(catalog, genome);
+
+            NBodySystem sys;
+            populate_sandbox(sys, catalog, genome, scale, kTestBodies);
+            require(static_cast<int>(sys.bodies.size()) == kTestBodies,
+                    "sandbox must populate the requested body count");
+            advance_sandbox(sys, 450);
+
+            const SandboxStats st = sandbox_stats(sys);
+            std::cerr << "[tier] " << scale_ladder()[s].name << " seed=" << seed
+                      << " rms=" << st.rms_radius << " E=" << st.energy
+                      << " virial=" << st.virial << " bound=" << st.bound_pairs << "\n";
+            require(st.finite, std::string("tier ") + scale_ladder()[s].name +
+                                   " must stay finite for seed " + seed);
+            require(st.rms_radius < 5.0e3,
+                    std::string("tier ") + scale_ladder()[s].name + " must not explode");
+        }
+    }
+}
+
+void test_sandbox_determinism_and_reproduction() {
+    std::vector<UniverseObject> catalog = build_object_catalog();
+    const LawGenome genome = generate_law_genome(std::string("repro-seed"));
+    apply_law_genome(catalog, genome);
+
+    // Two fresh populations advanced the same number of steps must match exactly.
+    NBodySystem a;
+    NBodySystem b;
+    populate_sandbox(a, catalog, genome, Scale::STELLAR);
+    populate_sandbox(b, catalog, genome, Scale::STELLAR);
+    advance_sandbox(a, 500);
+    advance_sandbox(b, 500);
+    require(a.bodies.size() == b.bodies.size(), "repro: same body count");
+    for (std::size_t i = 0; i < a.bodies.size(); ++i) {
+        require(a.bodies[i].pos.x == b.bodies[i].pos.x &&
+                    a.bodies[i].pos.y == b.bodies[i].pos.y,
+                "sandbox reproduction must be bit-identical");
+    }
+
+    // Advancing N in one call equals N single-step calls (the save/reopen path).
+    NBodySystem c;
+    populate_sandbox(c, catalog, genome, Scale::STELLAR);
+    for (int i = 0; i < 500; ++i) {
+        advance_sandbox(c, 1);
+    }
+    for (std::size_t i = 0; i < a.bodies.size(); ++i) {
+        require(a.bodies[i].pos.x == c.bodies[i].pos.x &&
+                    a.bodies[i].pos.y == c.bodies[i].pos.y,
+                "step batching must not change the trajectory");
+    }
+}
+
+void test_analysis() {
+    std::vector<UniverseObject> catalog = build_object_catalog();
+    const LawGenome genome = generate_law_genome(std::string("analysis-seed"));
+    apply_law_genome(catalog, genome);
+
+    const UniverseObject* water = find_object(catalog, "water");
+    require(water != nullptr, "water must exist");
+    const auto parts = resolve_constituents(catalog, *water);
+    require(parts.size() == 3, "water has three constituents");
+    int oxygens = 0;
+    for (const auto& p : parts) {
+        require(p.object != nullptr, "water constituents must resolve");
+        if (p.id == "oxygen") {
+            ++oxygens;
+        }
+    }
+    require(oxygens == 1, "water has one oxygen");
+
+    const UniverseObject* earth = find_object(catalog, "earth");
+    const UniverseObject* moon = find_object(catalog, "moon");
+    require(earth != nullptr && moon != nullptr, "earth and moon must exist");
+    const ObjectComparison cmp = compare_objects(*earth, *moon);
+    require(cmp.mass_ratio > 1.0, "earth is heavier than the moon");
+    require(cmp.mass_orders >= 1, "earth outmasses the moon by an order of magnitude");
+}
+
 } // namespace
 
 int main() {
@@ -163,5 +256,8 @@ int main() {
     test_catalog_invariants();
     test_energy_conservation();
     test_momentum_conservation_and_determinism();
+    test_all_tiers_stable();
+    test_sandbox_determinism_and_reproduction();
+    test_analysis();
     return 0;
 }

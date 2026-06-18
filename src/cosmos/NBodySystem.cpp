@@ -7,17 +7,20 @@ namespace cosmos {
 
 ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
     ForceParams p;
-    p.gravity = tier.gravity_weight * genome.coupling_gravity * 1.6;
-    p.charge = tier.charge_weight * genome.coupling_em * 1.6;
-    p.strong = tier.strong_weight * genome.coupling_strong * 2.5;
-    p.core = tier.core_weight * 1.2;
+    p.gravity = tier.gravity_weight * genome.coupling_gravity * 1.2;
+    p.charge = tier.charge_weight * genome.coupling_em * 1.0;
+    p.strong = tier.strong_weight * genome.coupling_strong * 1.6;
+    p.core = tier.core_weight * 0.4;
     p.exponent = std::clamp(genome.gravity_exponent, 1.5, 2.5);
-    p.softening = 0.18;
-    p.bond_range = 1.05;
-    p.bond_width = 0.60;
-    p.core_power = 6.0;
-    p.accel_cap = 80.0;
-    p.damping = 0.0;
+    p.softening = 0.30;
+    p.bond_range = 1.1;
+    p.bond_width = 0.6;
+    p.core_power = 4.0;
+    p.accel_cap = 50.0;
+    // A trap + damping let every tier relax into a stable, on-stage structure
+    // instead of drifting away under the initial soft-core pressure.
+    p.damping = 0.15;
+    p.confinement = 1.2;
     return p;
 }
 
@@ -80,6 +83,11 @@ std::vector<Vec2> NBodySystem::accelerations() const {
     for (std::size_t i = 0; i < n; ++i) {
         for (std::size_t j = i + 1; j < n; ++j) {
             accumulate_pair(static_cast<int>(i), static_cast<int>(j), accel);
+        }
+    }
+    if (params.confinement > 0.0) {
+        for (std::size_t i = 0; i < n; ++i) {
+            accel[i] -= bodies[i].pos * params.confinement;
         }
     }
     if (params.accel_cap > 0.0) {
@@ -168,6 +176,11 @@ double NBodySystem::potential_energy() const {
     for (std::size_t i = 0; i < bodies.size(); ++i) {
         for (std::size_t j = i + 1; j < bodies.size(); ++j) {
             pe += pair_potential(static_cast<int>(i), static_cast<int>(j));
+        }
+    }
+    if (params.confinement > 0.0) {
+        for (const Body& b : bodies) {
+            pe += 0.5 * params.confinement * b.mass * b.pos.length_sq();
         }
     }
     return pe;
