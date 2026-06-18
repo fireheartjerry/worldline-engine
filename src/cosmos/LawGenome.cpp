@@ -32,6 +32,12 @@ double squash(double raw, double lo, double hi) {
     return lo + (t * 0.5 + 0.5) * (hi - lo);
 }
 
+// Quantize to 1e-6 so the genome is bit-identical across platforms despite tiny
+// differences in transcendental (tanh/pow) implementations.
+double quantize(double v) {
+    return std::round(v * 1.0e6) / 1.0e6;
+}
+
 std::uint64_t mix64(std::uint64_t h, double value) {
     // Fold a rounded value into an FNV-1a-style accumulator. Rounding keeps the
     // signature stable against last-bit differences in transcendental results.
@@ -53,13 +59,13 @@ LawGenome generate_law_genome(const MetaSpec& meta_spec) {
     const double drift_raw = frob2(meta_spec.T) + meta_spec.drift_amp - 0.5;
     const double stability_raw = meta_spec.s_b - 0.5 * meta_spec.s_c;
 
-    genome.coupling_strong = squash(strong_raw, 0.35, 1.80);
-    genome.coupling_em = squash(em_raw, 0.35, 1.80);
-    genome.coupling_gravity = squash(gravity_raw, 0.40, 1.70);
-    genome.gravity_exponent = squash(meta_spec.p, 1.75, 2.25);
-    genome.mass_scale = squash(mass_raw, 0.60, 1.60);
-    genome.cosmological_drift = squash(drift_raw, 0.70, 1.50);
-    genome.stability_bias = squash(stability_raw, 0.15, 0.90);
+    genome.coupling_strong = quantize(squash(strong_raw, 0.35, 1.80));
+    genome.coupling_em = quantize(squash(em_raw, 0.35, 1.80));
+    genome.coupling_gravity = quantize(squash(gravity_raw, 0.40, 1.70));
+    genome.gravity_exponent = quantize(squash(meta_spec.p, 1.75, 2.25));
+    genome.mass_scale = quantize(squash(mass_raw, 0.60, 1.60));
+    genome.cosmological_drift = quantize(squash(drift_raw, 0.70, 1.50));
+    genome.stability_bias = quantize(squash(stability_raw, 0.15, 0.90));
 
     std::uint64_t sig = 1469598103934665603ull;
     sig = mix64(sig, genome.coupling_strong);

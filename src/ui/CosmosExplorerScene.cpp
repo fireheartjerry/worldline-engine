@@ -161,10 +161,11 @@ void restore_bookmark(AppState& app, CosmosState& cosmos, const CosmosBookmark& 
 } // namespace
 
 void CosmosState::configure(const std::string& seed_text) {
-    seed = seed_text.empty() ? std::string("worldline") : seed_text;
-    genome = generate_law_genome(seed);
-    catalog = build_object_catalog();
-    apply_law_genome(catalog, genome);
+    Universe u = generate_universe(seed_text);
+    seed = u.seed;
+    genome = u.genome;
+    classification = u.classification;
+    catalog = std::move(u.catalog);
     initialized = true;
     selected_object = 0;
     compare_object = -1;
@@ -447,13 +448,22 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
     const Rectangle stage = {stage_x, top, stage_w, column_h - controls_h - 10.0f * scale};
     const Rectangle controls = {stage_x, stage.y + stage.height + 10.0f * scale, stage_w, controls_h};
 
-    // ── Header (offset to clear the top-left back button) ────────────────────
+    // ── Header dossier (offset to clear the top-left back button) ────────────
     const float header_x = viewport.x + 200.0f * scale;
-    draw_text("COSMOS EXPLORER", {header_x, viewport.y + 24.0f * scale},
-              24.0f * scale, WL::TEXT_PRIMARY);
-    draw_text("seed '" + cosmos.seed + "'  -  law genome: " + describe_genome(cosmos.genome),
-              {header_x, viewport.y + 52.0f * scale}, 13.0f * scale,
-              with_alpha(WL::VIOLET_CORE, 210));
+    const UniverseClassification& cls = cosmos.classification;
+    draw_text("COSMOS EXPLORER", {header_x, viewport.y + 18.0f * scale},
+              22.0f * scale, WL::TEXT_PRIMARY);
+    const std::string dossier = cls.codename + "   " + cls.class_name + "   -   complexity " +
+                                std::to_string(static_cast<int>(cls.complexity * 100.0 + 0.5)) + "%";
+    draw_text(dossier, {header_x, viewport.y + 44.0f * scale}, 14.0f * scale,
+              with_alpha(WL::VIOLET_CORE, 220));
+    std::string traits;
+    for (std::size_t i = 0; i < cls.traits.size() && i < 4; ++i) {
+        traits += (i ? "  -  " : "") + cls.traits[i];
+    }
+    draw_text("seed '" + cosmos.seed + "'   |   " + traits,
+              {header_x, viewport.y + 62.0f * scale}, 11.5f * scale,
+              with_alpha(WL::TEXT_TERTIARY, 220));
 
     // Static UI is drawn first. The N-body stage uses a scissor + render-texture
     // passes, so it is rendered LAST to guarantee it cannot clip the panels.

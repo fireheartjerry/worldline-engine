@@ -98,9 +98,9 @@ ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
     case Scale::GALACTIC:
         p.gravity = 1.2 * grav;
         p.core = 0.55 * exclude;
-        p.swirl = 0.6 * spin;
+        p.swirl = 0.18 * spin; // gentle sustaining nudge; rotation comes from spawn
         p.confinement = 0.7 * trap;
-        p.damping = 0.04 * drag;
+        p.damping = 0.03 * drag;
         break;
     case Scale::COSMIC:
         p.gravity = 1.0 * grav;

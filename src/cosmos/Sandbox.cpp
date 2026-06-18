@@ -133,7 +133,7 @@ void populate_sandbox(NBodySystem& sys,
     const double gravN = norm(genome.coupling_gravity, 0.40, 1.70);
     const double drift_sign = (genome.cosmological_drift > 1.0) ? 1.0 : -1.0;
     const double orbit_k = 0.38 * (0.90 + 0.25 * gravN);  // orbital support
-    const double spin_speed = 1.5 * (0.70 + 0.80 * driftN); // [1.05,2.25]
+    const double gal_orbit = 0.60 + 0.20 * driftN;        // sub-circular disk support
     const double expand_k = 0.45 + 0.35 * driftN;          // [0.45,0.80]
     for (Body& b : sys.bodies) {
         const double r = b.pos.length();
@@ -153,8 +153,10 @@ void populate_sandbox(NBodySystem& sys,
             }
             break;
         case Scale::GALACTIC:
-            // Flat rotation curve: near-constant tangential speed at all radii.
-            b.vel = tang * (drift_sign * spin_speed);
+            // Rotationally-supported disk: near-circular orbital speed (so the
+            // disk stays ordered instead of heating into a turbulent blob).
+            b.vel = tang * (drift_sign * gal_orbit *
+                            std::sqrt(sys.params.gravity * total_mass / std::max(r, 0.6)));
             break;
         case Scale::COSMIC:
             // Hubble flow: outward velocity proportional to distance.

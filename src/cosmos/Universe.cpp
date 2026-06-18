@@ -1,0 +1,139 @@
+#include "cosmos/Universe.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+
+namespace cosmos {
+namespace {
+
+double norm(double v, double lo, double hi) {
+    return std::clamp((v - lo) / (hi - lo), 0.0, 1.0);
+}
+
+bool finite_in(double v, double lo, double hi) {
+    return std::isfinite(v) && v >= lo - 1.0e-9 && v <= hi + 1.0e-9;
+}
+
+std::string codename_from(std::uint64_t signature) {
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "WL-%04X",
+                  static_cast<unsigned>((signature >> 24) & 0xFFFFull));
+    return buf;
+}
+
+} // namespace
+
+UniverseClassification classify_universe(const LawGenome& g) {
+    const double strongN = norm(g.coupling_strong, 0.35, 1.80);
+    const double emN = norm(g.coupling_em, 0.35, 1.80);
+    const double gravN = norm(g.coupling_gravity, 0.40, 1.70);
+    const double driftN = norm(g.cosmological_drift, 0.70, 1.50);
+    const double massN = norm(g.mass_scale, 0.60, 1.60);
+    const double stabN = norm(g.stability_bias, 0.15, 0.90);
+
+    UniverseClassification c;
+    c.codename = codename_from(g.signature);
+
+    // The dominant deviation names the universe.
+    struct Cand { const char* name; double score; };
+    const Cand cands[] = {
+        {"Hadron-Dominant Cosmos", strongN},
+        {"Gravitational Crucible", gravN},
+        {"Electrostatic Lattice", emN},
+        {"Diffuse Expanse", driftN},
+        {"Dense Aggregate", massN},
+        {"Sparse Void", 1.0 - massN},
+    };
+    const Cand* best = &cands[0];
+    for (const Cand& cand : cands) {
+        if (cand.score > best->score) {
+            best = &cand;
+        }
+    }
+    c.class_name = (best->score >= 0.62) ? best->name : "Balanced Continuum";
+
+    // Distinguishing traits (only the notable extremes).
+    if (strongN > 0.62) c.traits.push_back("Strong nuclear binding");
+    else if (strongN < 0.33) c.traits.push_back("Weak nuclear force");
+    if (emN > 0.62) c.traits.push_back("Intense electromagnetism");
+    if (gravN > 0.62) c.traits.push_back("Heavy gravitation");
+    else if (gravN < 0.33) c.traits.push_back("Feeble gravitation");
+    if (massN > 0.62) c.traits.push_back("Heavy matter content");
+    else if (massN < 0.33) c.traits.push_back("Light matter content");
+    if (driftN > 0.62) c.traits.push_back("Rapid metric expansion");
+    else if (driftN < 0.33) c.traits.push_back("Quasi-static metric");
+    if (stabN > 0.62) c.traits.push_back("High structural persistence");
+    else if (stabN < 0.33) c.traits.push_back("Volatile structures");
+
+    const double e = g.gravity_exponent;
+    c.traits.push_back(std::abs(e - 2.0) < 0.06 ? "Inverse-square gravitation"
+                       : (e > 2.0)              ? "Steep gravitational falloff"
+                                                : "Shallow gravitational falloff");
+    if (c.traits.empty()) {
+        c.traits.push_back("Unremarkable constants");
+    }
+
+    // Complexity: balanced constants, persistent structures, and a metric that
+    // neither collapses nor runs away all raise the potential for rich emergence.
+    auto centered = [](double n) { return 1.0 - std::min(1.0, std::abs(n - 0.45) * 2.0); };
+    const double balance = (centered(strongN) + centered(emN) + centered(gravN)) / 3.0;
+    c.complexity = std::clamp(
+        0.55 * balance + 0.30 * stabN + 0.15 * (1.0 - std::abs(driftN - 0.35)), 0.0, 1.0);
+    return c;
+}
+
+Universe generate_universe(const std::string& seed) {
+    Universe u;
+    u.seed = seed.empty() ? std::string("worldline") : seed;
+    u.generation_version = kGenerationVersion;
+    u.genome = generate_law_genome(u.seed);
+    u.classification = classify_universe(u.genome);
+    u.catalog = build_object_catalog();
+    apply_law_genome(u.catalog, u.genome);
+    return u;
+}
+
+ValidationReport validate_universe(const Universe& u) {
+    ValidationReport report;
+    auto fail = [&](const std::string& msg) {
+        report.ok = false;
+        report.issues.push_back(msg);
+    };
+
+    const LawGenome& g = u.genome;
+    if (!finite_in(g.coupling_strong, 0.35, 1.80)) fail("coupling_strong out of range");
+    if (!finite_in(g.coupling_em, 0.35, 1.80)) fail("coupling_em out of range");
+    if (!finite_in(g.coupling_gravity, 0.40, 1.70)) fail("coupling_gravity out of range");
+    if (!finite_in(g.gravity_exponent, 1.75, 2.25)) fail("gravity_exponent out of range");
+    if (!finite_in(g.mass_scale, 0.60, 1.60)) fail("mass_scale out of range");
+    if (!finite_in(g.cosmological_drift, 0.70, 1.50)) fail("cosmological_drift out of range");
+    if (!finite_in(g.stability_bias, 0.15, 0.90)) fail("stability_bias out of range");
+
+    if (u.classification.class_name.empty()) fail("classification has no class name");
+    if (u.classification.codename.empty()) fail("classification has no codename");
+    if (!finite_in(u.classification.complexity, 0.0, 1.0)) fail("complexity out of range");
+
+    if (u.catalog.empty()) {
+        fail("catalog is empty");
+        return report;
+    }
+    for (const UniverseObject& o : u.catalog) {
+        if (!finite_in(o.sim_mass, 0.8, 5.0)) fail("sim_mass out of range: " + o.id);
+        if (!finite_in(o.sim_radius, 0.3, 1.1)) fail("sim_radius out of range: " + o.id);
+        if (!std::isfinite(o.sim_charge)) fail("sim_charge not finite: " + o.id);
+        if (!finite_in(o.stability, 0.0, 1.0)) fail("stability out of range: " + o.id);
+        if (!finite_in(o.abundance, 0.0, 1.0)) fail("abundance out of range: " + o.id);
+        if (!(std::isfinite(o.generated_mass) && o.generated_mass > 0.0))
+            fail("generated_mass invalid: " + o.id);
+        if (!(std::isfinite(o.mass_factor) && o.mass_factor > 0.0))
+            fail("mass_factor invalid: " + o.id);
+        for (const std::string& cid : o.constituents) {
+            if (find_object(u.catalog, cid) == nullptr)
+                fail("unresolved constituent '" + cid + "' in " + o.id);
+        }
+    }
+    return report;
+}
+
+} // namespace cosmos

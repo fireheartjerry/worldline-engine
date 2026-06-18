@@ -223,6 +223,12 @@ void apply_law_genome(std::vector<UniverseObject>& catalog, const LawGenome& gen
         rg.lr_hi = std::max(rg.lr_hi, log_radius(o.radius_m));
     }
 
+    auto norm = [](double v, double lo, double hi) {
+        return std::clamp((v - lo) / (hi - lo), 0.0, 1.0);
+    };
+    const double strongN = norm(genome.coupling_strong, 0.35, 1.80);
+    const double gravN = norm(genome.coupling_gravity, 0.40, 1.70);
+
     // Pass 2: generated + sandbox fields.
     for (UniverseObject& o : catalog) {
         const Range& rg = ranges[scale_index(o.scale)];
@@ -234,7 +240,17 @@ void apply_law_genome(std::vector<UniverseObject>& catalog, const LawGenome& gen
         o.stability = saturate(genome.stability_bias * (0.5 + 0.6 * frac(o.id, 3)) + 0.35 * o.binding);
 
         const double mass_norm = map_range(log_mass(o.rest_mass_kg), rg.lm_lo, rg.lm_hi, 0.0, 1.0);
-        o.abundance = saturate(o.stability * (0.5 + 0.5 * frac(o.id, 4)) * (1.0 - 0.4 * mass_norm));
+        // Nucleosynthesis flavor: heavy elements (and heavy bodies) become more
+        // common when the strong force (or gravity, at large scales) is strong,
+        // so each universe gets a visibly different abundance profile.
+        const bool matter = (o.scale == Scale::NUCLEAR || o.scale == Scale::ATOMIC ||
+                             o.scale == Scale::MOLECULAR);
+        const bool cosmic = (o.scale == Scale::PLANETARY || o.scale == Scale::STELLAR ||
+                             o.scale == Scale::GALACTIC || o.scale == Scale::COSMIC);
+        const double heavy_pref = matter ? strongN : (cosmic ? gravN : 0.5);
+        const double mass_pref = (1.0 - 0.55 * mass_norm) * (1.0 - heavy_pref) +
+                                 (0.45 + 0.55 * mass_norm) * heavy_pref;
+        o.abundance = saturate(o.stability * (0.45 + 0.5 * frac(o.id, 4)) * mass_pref);
 
         o.sim_mass = map_range(log_mass(o.rest_mass_kg), rg.lm_lo, rg.lm_hi, 0.8, 5.0);
         o.sim_radius = map_range(log_radius(o.radius_m), rg.lr_lo, rg.lr_hi, 0.3, 1.1);

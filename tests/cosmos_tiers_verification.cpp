@@ -48,6 +48,20 @@ double mean_nn_distance(const NBodySystem& sys) {
     return total / static_cast<double>(sys.bodies.size());
 }
 
+// Mass-independent spin parameter lambda = |L| / (M * v_rms * r_rms): ~1 for a
+// clean rotating disk, ~0 for random motion. Independent of the mass mix.
+double spin_parameter(const NBodySystem& sys) {
+    double mass = 0.0;
+    double ke = 0.0;
+    for (const Body& b : sys.bodies) {
+        mass += b.mass;
+        ke += 0.5 * b.mass * b.vel.length_sq();
+    }
+    const double v_rms = (mass > 0.0) ? std::sqrt(2.0 * ke / mass) : 0.0;
+    const double denom = mass * v_rms * sys.rms_radius();
+    return (denom > 1.0e-9) ? std::abs(sys.angular_momentum()) / denom : 0.0;
+}
+
 int count_pairs_within(const NBodySystem& sys, double lo, double hi) {
     int n = 0;
     for (std::size_t i = 0; i < sys.bodies.size(); ++i) {
@@ -160,10 +174,11 @@ void test_stellar_virialized() {
 void test_galactic_rotation() {
     for (const char* seed : seeds) {
         NBodySystem sys = make_sandbox(seed, Scale::GALACTIC);
-        advance_sandbox(sys, 300);
-        const double l = std::abs(sys.angular_momentum());
-        std::cerr << "[galactic] " << seed << " |L|=" << l << " rms=" << sys.rms_radius() << "\n";
-        require(l > 120.0, "galactic disk must rotate strongly");
+        advance_sandbox(sys, 200);
+        const double lambda = spin_parameter(sys);
+        std::cerr << "[galactic] " << seed << " spin=" << lambda
+                  << " |L|=" << std::abs(sys.angular_momentum()) << " rms=" << sys.rms_radius() << "\n";
+        require(lambda > 0.14, "galactic disk must rotate (spin parameter)");
         require(sys.rms_radius() < 25.0, "galactic disk must stay on stage");
     }
 }

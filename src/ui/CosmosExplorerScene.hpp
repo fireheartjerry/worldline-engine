@@ -6,6 +6,7 @@
 #include "cosmos/NBodySystem.hpp"
 #include "cosmos/ObjectCatalog.hpp"
 #include "cosmos/ScaleLadder.hpp"
+#include "cosmos/Universe.hpp"
 
 #include <string>
 #include <vector>
@@ -19,6 +20,7 @@ struct CosmosState {
     bool initialized = false;
     std::string seed;
     cosmos::LawGenome genome;
+    cosmos::UniverseClassification classification;
     std::vector<cosmos::UniverseObject> catalog;
 
     cosmos::Scale scale = cosmos::Scale::STELLAR;
