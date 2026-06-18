@@ -62,13 +62,14 @@ worldline_apply_warnings(worldline_app)
 
 add_executable(worldline
     src/main.cpp
+    src/ui/CosmosExplorerScene.cpp
     src/ui/GuidedFirstUniverseScene.cpp
     src/ui/SeedWorkspaceScene.cpp
     src/ui/TraceScene.cpp
     src/ui/UniverseAtlasScene.cpp
 )
 target_include_directories(worldline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(worldline raylib worldline_app)
+target_link_libraries(worldline raylib worldline_app worldline_cosmos)
 worldline_apply_warnings(worldline)
 
 add_executable(worldline_physics_tests tests/physics_verification.cpp)

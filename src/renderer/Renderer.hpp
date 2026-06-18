@@ -8,6 +8,7 @@
 #include "../ui/CanvasOverlayLayout.hpp"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 class Renderer {
 public:
@@ -201,7 +202,75 @@ public:
         DrawRectangleRoundedLines(layout.viewport, 0.028f, 20, 2.0f, {70, 104, 120, 180});
     }
 
+    // ── Generic glow-field rendering (used by the Cosmos N-body sandbox) ──────
+    // A point of light in screen space; reused for any particle-like system.
+    struct FieldSprite {
+        Vector2 pos;
+        float radius;
+        Color color;
+    };
+
+    // Fade the trail texture within `viewport` and splat the sprite cores into
+    // it additively, building motion trails frame over frame.
+    void accumulate_field(const std::vector<FieldSprite>& sprites,
+                          Rectangle viewport,
+                          unsigned char fade) {
+        if (!has_texture) {
+            return;
+        }
+        BeginTextureMode(trail_tex);
+        DrawRectangle(static_cast<int>(viewport.x),
+                      static_cast<int>(viewport.y),
+                      static_cast<int>(viewport.width),
+                      static_cast<int>(viewport.height),
+                      {6, 11, 18, fade});
+        BeginBlendMode(BLEND_ADDITIVE);
+        for (const FieldSprite& s : sprites) {
+            DrawCircleGradient(static_cast<int>(s.pos.x), static_cast<int>(s.pos.y),
+                               s.radius * 1.4f, with_field_alpha(s.color, 150), {0, 0, 0, 0});
+        }
+        EndBlendMode();
+        EndTextureMode();
+    }
+
+    // Composite the accumulated trail (with GPU bloom) and draw the live bodies
+    // on top, clipped to `viewport`.
+    void draw_field(const std::vector<FieldSprite>& sprites, Rectangle viewport) {
+        const bool use_bloom = bloom_enabled_ && bloom_.ready();
+        if (use_bloom) {
+            bloom_.generate(trail_tex.texture);
+        }
+
+        BeginScissorMode(static_cast<int>(viewport.x), static_cast<int>(viewport.y),
+                         static_cast<int>(viewport.width), static_cast<int>(viewport.height));
+
+        const Rectangle src = {0.0f, 0.0f, static_cast<float>(width), -static_cast<float>(height)};
+        DrawTextureRec(trail_tex.texture, src, {0.0f, 0.0f}, ColorAlpha(WHITE, 0.92f));
+        if (use_bloom) {
+            bloom_.composite({0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)});
+        }
+
+        BeginBlendMode(BLEND_ADDITIVE);
+        for (const FieldSprite& s : sprites) {
+            DrawCircleGradient(static_cast<int>(s.pos.x), static_cast<int>(s.pos.y),
+                               s.radius * 3.4f, with_field_alpha(s.color, 36), {0, 0, 0, 0});
+        }
+        EndBlendMode();
+        for (const FieldSprite& s : sprites) {
+            Color core = s.color;
+            core.a = 230;
+            DrawCircleGradient(static_cast<int>(s.pos.x), static_cast<int>(s.pos.y),
+                               s.radius, WHITE, core);
+        }
+        EndScissorMode();
+    }
+
 private:
+    static Color with_field_alpha(Color c, unsigned char a) {
+        c.a = a;
+        return c;
+    }
+
     int width = 0;
     int height = 0;
     bool has_texture = false;

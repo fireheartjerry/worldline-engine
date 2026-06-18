@@ -5,6 +5,7 @@
 #include "app/WorldlineCopy.hpp"
 #include "app/WorldlineStorage.hpp"
 #include "renderer/Renderer.hpp"
+#include "ui/CosmosExplorerScene.hpp"
 #include "ui/GuidedFirstUniverseScene.hpp"
 #include "ui/SeedWorkspaceScene.hpp"
 #include "ui/SettingsModal.hpp"
@@ -35,6 +36,7 @@ int main() {
     else if (app.settings.last_screen == "UniverseAtlas") app.ui.screen = AppScreen::UNIVERSE_ATLAS;
     else if (app.settings.last_screen == "ReferenceLab") app.ui.screen = AppScreen::REFERENCE_LAB;
     else if (app.settings.last_screen == "Trace") app.ui.screen = AppScreen::TRACE;
+    else if (app.settings.last_screen == "Cosmos") app.ui.screen = AppScreen::COSMOS_EXPLORER;
     if (!app.settings.last_project_id.empty()) {
         UniverseProject restored_project;
         if (Storage::load_project(app.settings.last_project_id, restored_project)) {
@@ -43,6 +45,7 @@ int main() {
     }
     AppScreen trail_screen = app.ui.screen;
     bool default_trail_needs_upload = true;
+    CosmosState cosmos;
 
     while (!WindowShouldClose()) {
         renderer.ensure_size(GetScreenWidth(), GetScreenHeight());
@@ -77,6 +80,7 @@ int main() {
         SeedWorkspaceSceneResult workspace_result{};
         UniverseAtlasSceneResult atlas_result{};
         TraceSceneResult trace_result{};
+        CosmosExplorerResult cosmos_result{};
         bool navigate_back = false;
 
         PendulumLayout display_layout{};
@@ -163,6 +167,10 @@ int main() {
             app.ui.drag_handle = 0;
         }
 
+        if (app.ui.screen == AppScreen::COSMOS_EXPLORER) {
+            step_cosmos(cosmos, GetFrameTime());
+        }
+
         BeginDrawing();
         draw_background(screen_width, screen_height);
         if (app.ui.screen == AppScreen::GUIDED_FIRST_UNIVERSE) {
@@ -179,6 +187,8 @@ int main() {
             atlas_result = draw_universe_atlas_scene(app, canvas);
         } else if (app.ui.screen == AppScreen::TRACE) {
             trace_result = draw_trace_scene(app, canvas);
+        } else if (app.ui.screen == AppScreen::COSMOS_EXPLORER) {
+            cosmos_result = draw_cosmos_explorer_scene(app, cosmos, renderer, canvas);
         } else {
             renderer.draw_scene(app.simulation,
                                 display_layout,
@@ -211,6 +221,12 @@ int main() {
             app.ui.settings_open = false;
             app.ui.panel_scroll = 0.0f;
             prepare_toggle_interaction(app);
+        } else if (guided_result.open_cosmos) {
+            app.ui.screen = AppScreen::COSMOS_EXPLORER;
+            app.ui.settings_open = false;
+        } else if (app.ui.screen == AppScreen::COSMOS_EXPLORER && cosmos_result.back_requested) {
+            app.ui.screen = AppScreen::GUIDED_FIRST_UNIVERSE;
+            app.ui.settings_open = false;
         } else if (workspace_result.refresh_catalog || atlas_result.refresh_catalog) {
             app.catalog = Storage::load_catalog();
         } else if (app.ui.screen == AppScreen::SEEDED_WORKSPACE && workspace_result.open_trace) {
@@ -301,6 +317,7 @@ int main() {
         (app.ui.screen == AppScreen::UNIVERSE_ATLAS) ? "UniverseAtlas" :
         (app.ui.screen == AppScreen::REFERENCE_LAB) ? "ReferenceLab" :
         (app.ui.screen == AppScreen::TRACE) ? "Trace" :
+        (app.ui.screen == AppScreen::COSMOS_EXPLORER) ? "Cosmos" :
         "GuidedFirstUniverse";
     app.settings.window_width = GetScreenWidth();
     app.settings.window_height = GetScreenHeight();
