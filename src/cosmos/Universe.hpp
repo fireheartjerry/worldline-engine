@@ -22,6 +22,21 @@ struct UniverseClassification {
 
 UniverseClassification classify_universe(const LawGenome& genome);
 
+// A per-universe color identity that drives the backdrop, nebulae and accents,
+// so each universe looks unmistakably its own. Deterministic from the genome.
+struct UniversePalette {
+    Color8 void_top;     // background gradient top
+    Color8 void_bottom;  // background gradient bottom
+    Color8 nebula_a;     // primary nebula bloom
+    Color8 nebula_b;     // secondary nebula bloom
+    Color8 star;         // starfield tint
+    Color8 accent;       // bright primary accent
+    double star_density = 0.5; // [0,1]
+    double primary_hue = 200.0;
+};
+
+UniversePalette derive_palette(const LawGenome& genome, const UniverseClassification& cls);
+
 // A fully generated, self-consistent universe: the single source of truth that
 // the Explorer and sandboxes are built from.
 struct Universe {
@@ -29,6 +44,7 @@ struct Universe {
     int generation_version = kGenerationVersion;
     LawGenome genome;
     UniverseClassification classification;
+    UniversePalette palette;
     std::vector<UniverseObject> catalog; // genome-specialized
 };
 

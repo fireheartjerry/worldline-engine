@@ -35,6 +35,8 @@ struct UniverseObject {
     double binding = 0.0;        // [0,1] how tightly bound
     double stability = 0.0;      // [0,1] how persistent
     double abundance = 0.0;      // [0,1] how common
+    double temperature = 0.0;    // characteristic temperature (K), generated
+    std::string epoch;           // formation era in this universe's history
 
     // Dimensionless, well-conditioned parameters for the N-body sandbox.
     double sim_mass = 1.0;

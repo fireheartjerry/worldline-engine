@@ -204,6 +204,44 @@ std::vector<UniverseObject> build_object_catalog() {
     add("universe", "Observable universe", "Obs", Scale::COSMIC, 1.0e53, 0.0, 8.8e26,
         "Everything within the cosmic horizon.");
 
+    // --- Extended catalog (richer exploration) ------------------------------
+    add("strange_quark", "Strange quark", "s", Scale::SUBATOMIC, 1.70e-28, -0.3333, 1.0e-19,
+        "Second-generation down-type quark.");
+    add("tau", "Tau lepton", "tau", Scale::SUBATOMIC, 3.167e-27, -1.0, 1.0e-18,
+        "Heaviest charged lepton; fleeting.");
+    add("gluon", "Gluon", "g", Scale::SUBATOMIC, 1.0e-41, 0.0, 1.0e-19,
+        "Massless mediator of the strong force.");
+    add("nitrogen", "Nitrogen", "N", Scale::ATOMIC, 2.3259e-26, 0.0, 6.5e-11,
+        "Pnictogen; the bulk of breathable air.");
+    add("silicon", "Silicon", "Si", Scale::ATOMIC, 4.6637e-26, 0.0, 1.11e-10,
+        "Semiconductor backbone of rock and circuitry.");
+    add("calcium", "Calcium", "Ca", Scale::ATOMIC, 6.6551e-26, 0.0, 1.94e-10,
+        "Alkaline earth metal of bone and shell.");
+    add("benzene", "Benzene", "C6H6", Scale::MOLECULAR, 1.297e-25, 0.0, 5.0e-10,
+        "Aromatic ring; the heart of organic chemistry.", {"carbon", "carbon", "hydrogen"});
+    add("ethanol", "Ethanol", "C2H6O", Scale::MOLECULAR, 7.646e-26, 0.0, 4.4e-10,
+        "Simple alcohol.", {"carbon", "hydrogen", "oxygen"});
+    add("glycine", "Glycine", "C2H5NO2", Scale::MOLECULAR, 1.247e-25, 0.0, 5.0e-10,
+        "Simplest amino acid; a building block of proteins.");
+    add("quantum_dot", "Quantum dot", "QD", Scale::NANOSCALE, 1.0e-21, 0.0, 5.0e-9,
+        "Engineered nanocrystal with a tunable bandgap.");
+    add("ribosome", "Ribosome", "ribo", Scale::NANOSCALE, 4.5e-21, 0.0, 1.3e-8,
+        "Molecular machine that assembles proteins.");
+    add("comet", "Comet", "comet", Scale::PLANETARY, 2.2e14, 0.0, 5.0e3,
+        "Icy planetesimal with a streaming tail.");
+    add("super_earth", "Super-Earth", "SupE", Scale::PLANETARY, 3.0e25, 0.0, 9.0e6,
+        "Massive rocky world.");
+    add("magnetar", "Magnetar", "SGR", Scale::STELLAR, 2.8e30, 0.0, 1.0e4,
+        "Neutron star with a colossal magnetic field.");
+    add("quasar", "Quasar", "QSO", Scale::STELLAR, 2.0e39, 0.0, 1.0e13,
+        "Accreting supermassive black hole, blindingly bright.");
+    add("dark_halo", "Dark matter halo", "DMH", Scale::GALACTIC, 3.0e42, 0.0, 1.0e21,
+        "Invisible mass scaffolding a galaxy.");
+    add("filament", "Cosmic filament", "fila", Scale::COSMIC, 1.0e48, 0.0, 3.0e24,
+        "Luminous thread of the cosmic web linking clusters.");
+    add("great_wall", "Galaxy wall", "wall", Scale::COSMIC, 1.0e49, 0.0, 5.0e24,
+        "Vast sheet-like complex of superclusters.");
+
     return c;
 }
 
@@ -255,6 +293,19 @@ void apply_law_genome(std::vector<UniverseObject>& catalog, const LawGenome& gen
         o.sim_mass = map_range(log_mass(o.rest_mass_kg), rg.lm_lo, rg.lm_hi, 0.8, 5.0);
         o.sim_radius = map_range(log_radius(o.radius_m), rg.lr_lo, rg.lr_hi, 0.3, 1.1);
         o.sim_charge = std::clamp(o.charge_e * (0.6 * genome.coupling_em), -3.0, 3.0);
+
+        // Characteristic temperature (K) per scale, modulated by this universe's
+        // couplings, and a formation epoch tag — for the inspector's richness.
+        static const double kScaleTemp[kScaleCount] = {
+            2.0e12, 1.0e10, 1.5e4, 3.0e2, 3.2e2, 7.0e2, 8.0e6, 1.0e6, 2.7e0};
+        const double temp_mod = 0.6 + 0.8 * scale_coupling(o.scale, genome) /
+                                          std::max(0.35, genome.coupling_strong);
+        o.temperature = kScaleTemp[scale_index(o.scale)] * std::clamp(temp_mod, 0.4, 1.8) *
+                        (0.85 + 0.3 * frac(o.id, 5));
+        static const char* kEpoch[kScaleCount] = {
+            "Primordial", "Nucleosynthesis", "Recombination", "Chemical", "Condensation",
+            "Planetary", "Stellar", "Structure", "Late-time"};
+        o.epoch = kEpoch[scale_index(o.scale)];
 
         const Color8 base = scale_palette(o.scale);
         const double bright = 0.55 + 0.45 * o.stability;

@@ -83,12 +83,67 @@ UniverseClassification classify_universe(const LawGenome& g) {
     return c;
 }
 
+namespace {
+
+Color8 hsv8(double h, double s, double v) {
+    h = std::fmod(std::fmod(h, 360.0) + 360.0, 360.0);
+    s = std::clamp(s, 0.0, 1.0);
+    v = std::clamp(v, 0.0, 1.0);
+    const double c = v * s;
+    const double x = c * (1.0 - std::abs(std::fmod(h / 60.0, 2.0) - 1.0));
+    const double m = v - c;
+    double r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; }
+    else if (h < 120) { r = x; g = c; }
+    else if (h < 180) { g = c; b = x; }
+    else if (h < 240) { g = x; b = c; }
+    else if (h < 300) { r = x; b = c; }
+    else { r = c; b = x; }
+    auto to8 = [&](double ch) {
+        return static_cast<unsigned char>(std::clamp((ch + m) * 255.0, 0.0, 255.0));
+    };
+    return {to8(r), to8(g), to8(b)};
+}
+
+} // namespace
+
+UniversePalette derive_palette(const LawGenome& g, const UniverseClassification& cls) {
+    const double strongN = norm(g.coupling_strong, 0.35, 1.80);
+    const double emN = norm(g.coupling_em, 0.35, 1.80);
+    const double gravN = norm(g.coupling_gravity, 0.40, 1.70);
+    const double driftN = norm(g.cosmological_drift, 0.70, 1.50);
+
+    // Each dominant force pulls the universe toward a signature hue; the genome
+    // signature adds a per-universe rotation so no two feel identical.
+    const double base_hue = 25.0 * strongN     // strong -> ember orange
+                          + 195.0 * emN         // em -> cyan
+                          + 280.0 * gravN       // gravity -> violet
+                          + 160.0 * driftN;     // drift -> teal
+    const double weight = strongN + emN + gravN + driftN + 1.0e-6;
+    double hue = base_hue / weight;
+    hue += static_cast<double>((g.signature >> 8) & 0x3F); // up to +63 deg jitter
+
+    UniversePalette p;
+    p.primary_hue = std::fmod(hue, 360.0);
+    const double sec = p.primary_hue + 145.0;
+
+    p.void_top = hsv8(p.primary_hue, 0.55, 0.045);
+    p.void_bottom = hsv8(sec, 0.45, 0.03);
+    p.nebula_a = hsv8(p.primary_hue, 0.70, 0.55);
+    p.nebula_b = hsv8(sec, 0.65, 0.45);
+    p.star = hsv8(p.primary_hue, 0.18, 1.0);
+    p.accent = hsv8(p.primary_hue, 0.75, 1.0);
+    p.star_density = std::clamp(0.35 + 0.6 * cls.complexity, 0.0, 1.0);
+    return p;
+}
+
 Universe generate_universe(const std::string& seed) {
     Universe u;
     u.seed = seed.empty() ? std::string("worldline") : seed;
     u.generation_version = kGenerationVersion;
     u.genome = generate_law_genome(u.seed);
     u.classification = classify_universe(u.genome);
+    u.palette = derive_palette(u.genome, u.classification);
     u.catalog = build_object_catalog();
     apply_law_genome(u.catalog, u.genome);
     return u;
@@ -128,6 +183,9 @@ ValidationReport validate_universe(const Universe& u) {
             fail("generated_mass invalid: " + o.id);
         if (!(std::isfinite(o.mass_factor) && o.mass_factor > 0.0))
             fail("mass_factor invalid: " + o.id);
+        if (!(std::isfinite(o.temperature) && o.temperature > 0.0))
+            fail("temperature invalid: " + o.id);
+        if (o.epoch.empty()) fail("epoch missing: " + o.id);
         for (const std::string& cid : o.constituents) {
             if (find_object(u.catalog, cid) == nullptr)
                 fail("unresolved constituent '" + cid + "' in " + o.id);

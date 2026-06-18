@@ -219,11 +219,13 @@ public:
             return;
         }
         BeginTextureMode(trail_tex);
+        // Fade toward black so the trail texture can be composited additively
+        // over the universe backdrop without washing it out.
         DrawRectangle(static_cast<int>(viewport.x),
                       static_cast<int>(viewport.y),
                       static_cast<int>(viewport.width),
                       static_cast<int>(viewport.height),
-                      {6, 11, 18, fade});
+                      {0, 0, 0, fade});
         BeginBlendMode(BLEND_ADDITIVE);
         for (const FieldSprite& s : sprites) {
             DrawCircleGradient(static_cast<int>(s.pos.x), static_cast<int>(s.pos.y),
@@ -244,8 +246,11 @@ public:
         BeginScissorMode(static_cast<int>(viewport.x), static_cast<int>(viewport.y),
                          static_cast<int>(viewport.width), static_cast<int>(viewport.height));
 
+        // Composite the trail additively so the universe backdrop glows through.
         const Rectangle src = {0.0f, 0.0f, static_cast<float>(width), -static_cast<float>(height)};
-        DrawTextureRec(trail_tex.texture, src, {0.0f, 0.0f}, ColorAlpha(WHITE, 0.92f));
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawTextureRec(trail_tex.texture, src, {0.0f, 0.0f}, ColorAlpha(WHITE, 0.95f));
+        EndBlendMode();
         if (use_bloom) {
             bloom_.composite({0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)});
         }
@@ -253,7 +258,7 @@ public:
         BeginBlendMode(BLEND_ADDITIVE);
         for (const FieldSprite& s : sprites) {
             DrawCircleGradient(static_cast<int>(s.pos.x), static_cast<int>(s.pos.y),
-                               s.radius * 3.4f, with_field_alpha(s.color, 36), {0, 0, 0, 0});
+                               s.radius * 3.6f, with_field_alpha(s.color, 42), {0, 0, 0, 0});
         }
         EndBlendMode();
         for (const FieldSprite& s : sprites) {

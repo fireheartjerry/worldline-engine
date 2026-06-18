@@ -86,6 +86,25 @@ void test_genome_quantization() {
     require(is_quantized(g.stability_bias), "stability_bias must be quantized");
 }
 
+void test_palette() {
+    const Universe a = generate_universe("alpha");
+    const Universe b = generate_universe("alpha");
+    require(a.palette.primary_hue == b.palette.primary_hue, "palette must be deterministic");
+    require(a.palette.star_density >= 0.0 && a.palette.star_density <= 1.0,
+            "star density must be in [0,1]");
+    const Color8 acc = a.palette.accent;
+    require(static_cast<int>(acc.r) + acc.g + acc.b > 30, "accent color must be visible");
+
+    int distinct = 0;
+    double last = -1.0;
+    for (int i = 0; i < 8; ++i) {
+        const Universe u = generate_universe("pal-" + std::to_string(i));
+        if (u.palette.primary_hue != last) ++distinct;
+        last = u.palette.primary_hue;
+    }
+    require(distinct >= 5, "palettes must vary across universes");
+}
+
 // Property/fuzz sweep: no seed may ever produce a malformed universe.
 void test_fuzz_generation() {
     const int kSeeds = 600;
@@ -129,6 +148,7 @@ int main() {
     test_classification();
     test_validation_passes_and_catches_corruption();
     test_genome_quantization();
+    test_palette();
     test_fuzz_generation();
     test_fuzz_sandbox_stability();
     return 0;

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 
 using namespace cosmos;
@@ -15,6 +16,63 @@ using namespace cosmos;
 namespace {
 
 constexpr double kWorldHalf = 12.0;
+
+Color palette_color(Color8 c, unsigned char a = 255) {
+    return Color{c.r, c.g, c.b, a};
+}
+
+// A deterministic, animated nebula + starfield unique to each universe. Drawn
+// behind the sandbox so motion trails glow over it.
+void draw_universe_backdrop(const UniversePalette& pal, std::uint64_t sig,
+                            Rectangle rect, float t) {
+    BeginScissorMode(static_cast<int>(rect.x), static_cast<int>(rect.y),
+                     static_cast<int>(rect.width), static_cast<int>(rect.height));
+
+    DrawRectangleGradientEx(rect, palette_color(pal.void_top), palette_color(pal.void_bottom),
+                            palette_color(pal.void_bottom), palette_color(pal.void_top));
+
+    // Slow-drifting nebula blooms.
+    const float drift = std::sin(t * 0.05f) * rect.width * 0.02f;
+    DrawCircleGradient(static_cast<int>(rect.x + rect.width * 0.30f + drift),
+                       static_cast<int>(rect.y + rect.height * 0.34f), rect.height * 0.60f,
+                       palette_color(pal.nebula_a, 60), {0, 0, 0, 0});
+    DrawCircleGradient(static_cast<int>(rect.x + rect.width * 0.72f - drift),
+                       static_cast<int>(rect.y + rect.height * 0.66f), rect.height * 0.48f,
+                       palette_color(pal.nebula_b, 50), {0, 0, 0, 0});
+    DrawCircleGradient(static_cast<int>(rect.x + rect.width * 0.55f),
+                       static_cast<int>(rect.y + rect.height * 0.12f), rect.height * 0.34f,
+                       palette_color(pal.nebula_a, 26), {0, 0, 0, 0});
+
+    // Twinkling starfield seeded by the universe signature.
+    std::uint64_t rng = sig ? sig : 0x1234567ull;
+    auto nxt = [&]() {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        return rng;
+    };
+    auto fr = [&]() { return static_cast<double>(nxt() % 100000ull) / 100000.0; };
+    const int stars = 150 + static_cast<int>(pal.star_density * 340.0);
+    for (int i = 0; i < stars; ++i) {
+        const float sx = rect.x + static_cast<float>(fr()) * rect.width;
+        const float sy = rect.y + static_cast<float>(fr()) * rect.height;
+        const double phase = fr() * 6.283;
+        const double speed = 1.2 + fr() * 3.2;
+        const bool bright = fr() < 0.06;
+        const float twinkle = 0.35f + 0.65f * static_cast<float>(0.5 + 0.5 * std::sin(t * speed + phase));
+        const float sz = bright ? 1.6f + 1.8f * static_cast<float>(fr())
+                                : 0.6f + 0.9f * static_cast<float>(fr());
+        Color sc = palette_color(pal.star);
+        sc.a = static_cast<unsigned char>(std::clamp(twinkle * (bright ? 235.0f : 150.0f), 0.0f, 255.0f));
+        if (bright) {
+            Color halo = sc;
+            halo.a = static_cast<unsigned char>(sc.a * 0.4f);
+            DrawCircleGradient(static_cast<int>(sx), static_cast<int>(sy), sz * 3.2f, halo, {0, 0, 0, 0});
+        }
+        DrawCircleV({sx, sy}, sz, sc);
+    }
+    EndScissorMode();
+}
 
 std::string fmt_sci(double v) {
     char buf[40];
@@ -106,11 +164,15 @@ void draw_browser_modal(AppState& app, CosmosState& cosmos, Rectangle viewport, 
         DrawRectangleRoundedLines(row, 0.12f, 6, 1.0f, with_alpha(WL::GLASS_BORDER, 130));
 
         const int idx = std::clamp(b.scale_index, 0, static_cast<int>(kScaleCount) - 1);
+        const UniverseClassification bcls = classify_universe(generate_law_genome(b.seed));
         draw_text(b.title.empty() ? b.seed : b.title,
                   {row.x + 12.0f * scale, row.y + 7.0f * scale}, 15.0f * scale, WL::TEXT_PRIMARY);
+        draw_text(bcls.codename + "  " + bcls.class_name,
+                  {row.x + 12.0f * scale, row.y + 26.0f * scale}, 11.5f * scale,
+                  with_alpha(WL::VIOLET_CORE, 200));
         const std::string sub = std::string(scale_ladder()[idx].name) + "  -  seed '" + b.seed +
-                                "'  -  " + std::to_string(b.steps) + " steps  -  " + b.created_at;
-        draw_text(sub, {row.x + 12.0f * scale, row.y + 28.0f * scale}, 12.0f * scale,
+                                "'  -  " + std::to_string(b.steps) + " steps";
+        draw_text(sub, {row.x + 12.0f * scale, row.y + 40.0f * scale}, 11.0f * scale,
                   WL::TEXT_TERTIARY);
 
         // Delete button on the right.
@@ -165,6 +227,7 @@ void CosmosState::configure(const std::string& seed_text) {
     seed = u.seed;
     genome = u.genome;
     classification = u.classification;
+    palette = u.palette;
     catalog = std::move(u.catalog);
     initialized = true;
     selected_object = 0;
@@ -258,7 +321,7 @@ void draw_inspector(const CosmosState& cosmos, Rectangle rect, float scale) {
 
     // Object list.
     const float list_top = rect.y + 50.0f * scale;
-    const float row_h = 30.0f * scale;
+    const float row_h = 22.0f * scale;
     for (std::size_t i = 0; i < objs.size(); ++i) {
         const UniverseObject& o = *objs[i];
         const Rectangle row = {rect.x + 10.0f * scale, list_top + row_h * i,
@@ -298,11 +361,15 @@ void draw_inspector(const CosmosState& cosmos, Rectangle rect, float scale) {
     draw_text(o.name + "  (" + o.symbol + ")", {rect.x + 14.0f * scale, insp_y + 8.0f * scale},
               17.0f * scale, WL::TEXT_PRIMARY);
     draw_text_block(o.description,
-                    {rect.x + 14.0f * scale, insp_y + 30.0f * scale, rect.width - 28.0f * scale,
-                     40.0f * scale},
-                    12.5f * scale, WL::TEXT_TERTIARY, 2.0f * scale);
+                    {rect.x + 14.0f * scale, insp_y + 28.0f * scale, rect.width - 28.0f * scale,
+                     30.0f * scale},
+                    12.0f * scale, WL::TEXT_TERTIARY, 2.0f * scale);
+    draw_text(o.epoch + " epoch   -   " + fmt_sci(o.temperature) + " K   -   abundance " +
+                  std::to_string(static_cast<int>(o.abundance * 100.0 + 0.5)) + "%",
+              {rect.x + 14.0f * scale, insp_y + 56.0f * scale}, 11.5f * scale,
+              with_alpha(WL::CYAN_CORE, 185));
 
-    const float grid_y = insp_y + 70.0f * scale;
+    const float grid_y = insp_y + 76.0f * scale;
     const float tile_w = (rect.width - 30.0f * scale) * 0.5f;
     const float tile_h = 40.0f * scale;
     const float gx = rect.x + 12.0f * scale;
@@ -419,6 +486,89 @@ void draw_observables(const CosmosState& cosmos, Rectangle rect, float scale) {
               17.0f * scale, WL::TEXT_PRIMARY);
 }
 
+// The generation report: the universe's full dossier — classification, palette,
+// fundamental constants, traits and catalog census.
+void draw_dossier_modal(CosmosState& cosmos, Rectangle viewport, float scale) {
+    DrawRectangle(static_cast<int>(viewport.x), static_cast<int>(viewport.y),
+                  static_cast<int>(viewport.width), static_cast<int>(viewport.height),
+                  {2, 4, 9, 205});
+    const float w = std::min(viewport.width * 0.56f, 700.0f * scale);
+    const float h = std::min(viewport.height * 0.8f, 600.0f * scale);
+    const Rectangle m = {viewport.x + (viewport.width - w) * 0.5f,
+                         viewport.y + (viewport.height - h) * 0.5f, w, h};
+    draw_card(m, {7, 14, 26, 250}, palette_color(cosmos.palette.accent, 160));
+
+    const UniverseClassification& c = cosmos.classification;
+    draw_text(c.codename, {m.x + 20.0f * scale, m.y + 16.0f * scale}, 15.0f * scale,
+              palette_color(cosmos.palette.accent, 230));
+    draw_text(c.class_name, {m.x + 20.0f * scale, m.y + 34.0f * scale}, 24.0f * scale,
+              WL::TEXT_PRIMARY);
+    draw_text("seed '" + cosmos.seed + "'   -   generation v" +
+                  std::to_string(kGenerationVersion),
+              {m.x + 20.0f * scale, m.y + 64.0f * scale}, 12.0f * scale, WL::TEXT_TERTIARY);
+
+    const Rectangle close = {m.x + m.width - 38.0f * scale, m.y + 16.0f * scale, 24.0f * scale,
+                             24.0f * scale};
+    if (draw_button(close, "x", {30, 18, 40, 235}, {60, 30, 70, 255}, WL::TEXT_PRIMARY, true, scale) ||
+        IsKeyPressed(KEY_ESCAPE)) {
+        cosmos.dossier_open = false;
+    }
+
+    // Palette swatches.
+    const Color8 sw[5] = {cosmos.palette.accent, cosmos.palette.nebula_a, cosmos.palette.nebula_b,
+                          cosmos.palette.star, cosmos.palette.void_bottom};
+    for (int i = 0; i < 5; ++i) {
+        const Rectangle r = {m.x + 20.0f * scale + i * 30.0f * scale, m.y + 84.0f * scale,
+                             24.0f * scale, 14.0f * scale};
+        DrawRectangleRounded(r, 0.3f, 4, palette_color(sw[i]));
+        DrawRectangleRoundedLines(r, 0.3f, 4, 1.0f, with_alpha(WL::TEXT_TERTIARY, 120));
+    }
+    draw_text("complexity " + std::to_string(static_cast<int>(c.complexity * 100.0 + 0.5)) + "%",
+              {m.x + 190.0f * scale, m.y + 84.0f * scale}, 13.0f * scale,
+              palette_color(cosmos.palette.accent, 220));
+
+    // Fundamental constants grid.
+    const LawGenome& g = cosmos.genome;
+    const float gy = m.y + 112.0f * scale;
+    const float tw = (m.width - 50.0f * scale) / 4.0f;
+    const float th = 40.0f * scale;
+    auto tile = [&](int col, int row, const char* label, const std::string& value) {
+        draw_metric({m.x + 20.0f * scale + col * (tw + 6.0f * scale), gy + row * (th + 6.0f * scale),
+                     tw, th},
+                    label, value, scale);
+    };
+    tile(0, 0, "STRONG", fmt_fixed(g.coupling_strong, 3));
+    tile(1, 0, "EM", fmt_fixed(g.coupling_em, 3));
+    tile(2, 0, "GRAVITY", fmt_fixed(g.coupling_gravity, 3));
+    tile(3, 0, "GRAV EXP", fmt_fixed(g.gravity_exponent, 3));
+    tile(0, 1, "MASS SCALE", fmt_fixed(g.mass_scale, 3));
+    tile(1, 1, "EXPANSION", fmt_fixed(g.cosmological_drift, 3));
+    tile(2, 1, "STABILITY", fmt_fixed(g.stability_bias, 3));
+    tile(3, 1, "OBJECTS", std::to_string(cosmos.catalog.size()));
+
+    // Traits.
+    float ty = gy + 2.0f * (th + 6.0f * scale) + 8.0f * scale;
+    draw_text("DISTINGUISHING TRAITS", {m.x + 20.0f * scale, ty}, 12.0f * scale,
+              with_alpha(WL::CYAN_CORE, 190));
+    ty += 20.0f * scale;
+    for (const std::string& tr : c.traits) {
+        draw_text("-  " + tr, {m.x + 24.0f * scale, ty}, 13.0f * scale, WL::TEXT_SECONDARY);
+        ty += 19.0f * scale;
+        if (ty > m.y + m.height - 60.0f * scale) break;
+    }
+
+    // Catalog census by tier.
+    std::string census;
+    for (std::size_t s = 0; s < kScaleCount; ++s) {
+        const auto objs = objects_for_scale(cosmos.catalog, static_cast<Scale>(s));
+        census += std::to_string(objs.size());
+        if (s + 1 < kScaleCount) census += " / ";
+    }
+    draw_text("census (subatomic .. cosmic):  " + census,
+              {m.x + 20.0f * scale, m.y + m.height - 30.0f * scale}, 11.5f * scale,
+              WL::TEXT_TERTIARY);
+}
+
 } // namespace
 
 CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
@@ -454,9 +604,16 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
     draw_text("COSMOS EXPLORER", {header_x, viewport.y + 18.0f * scale},
               22.0f * scale, WL::TEXT_PRIMARY);
     const std::string dossier = cls.codename + "   " + cls.class_name + "   -   complexity " +
-                                std::to_string(static_cast<int>(cls.complexity * 100.0 + 0.5)) + "%";
+                                std::to_string(static_cast<int>(cls.complexity * 100.0 + 0.5)) +
+                                "%   [dossier]";
+    const Rectangle dossier_hit = {header_x, viewport.y + 42.0f * scale, 540.0f * scale,
+                                   20.0f * scale};
+    const bool dossier_hot = CheckCollisionPointRec(GetMousePosition(), dossier_hit);
     draw_text(dossier, {header_x, viewport.y + 44.0f * scale}, 14.0f * scale,
-              with_alpha(WL::VIOLET_CORE, 220));
+              palette_color(cosmos.palette.accent, dossier_hot ? 255 : 220));
+    if (clicked(dossier_hit)) {
+        cosmos.dossier_open = !cosmos.dossier_open;
+    }
     std::string traits;
     for (std::size_t i = 0; i < cls.traits.size() && i < 4; ++i) {
         traits += (i ? "  -  " : "") + cls.traits[i];
@@ -510,7 +667,8 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
     }
 
     // ── Stage (the live N-body sandbox) — rendered last ──────────────────────
-    draw_card(stage, {3, 7, 14, 255}, with_alpha(WL::GLASS_BORDER, 130));
+    draw_universe_backdrop(cosmos.palette, cosmos.genome.signature, stage,
+                           static_cast<float>(GetTime()));
 
     const float cx = stage.x + stage.width * 0.5f;
     const float cy = stage.y + stage.height * 0.5f;
@@ -526,7 +684,7 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
         sprites.push_back(s);
     }
 
-    if (cosmos.has_sim && !cosmos.browser_open) {
+    if (cosmos.has_sim && !cosmos.browser_open && !cosmos.dossier_open) {
         if (cosmos.running) {
             renderer.accumulate_field(sprites, stage, 24);
         }
@@ -550,6 +708,9 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
     // while it is open, so nothing clips it).
     if (cosmos.browser_open) {
         draw_browser_modal(app, cosmos, viewport, scale);
+    }
+    if (cosmos.dossier_open) {
+        draw_dossier_modal(cosmos, viewport, scale);
     }
 
     return result;
