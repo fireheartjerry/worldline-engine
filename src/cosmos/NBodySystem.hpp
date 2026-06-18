@@ -25,6 +25,10 @@ struct ForceParams {
     double confinement = 0.0; // harmonic pull toward the origin (keeps the cloud
                               // on-stage); a single-body force, so it is excluded
                               // from the conservative energy/momentum tests.
+    double linear = 0.0;      // pairwise attraction growing with distance
+                              // (quark-style confinement). Momentum/energy safe.
+    double swirl = 0.0;       // rotational forcing a += swirl * perp(pos); drives
+                              // galactic disks. Single-body, non-conservative.
 };
 
 // Build tier-appropriate force coefficients from a universe's law genome.
@@ -57,9 +61,11 @@ public:
     double total_energy() const { return kinetic_energy() + potential_energy(); }
     Vec2 total_momentum() const;
     Vec2 center_of_mass() const;
-    double virial_ratio() const;   // 2*KE / |PE|; ~1 indicates a relaxed bound system
-    int bound_pair_count() const;  // pairs with negative total two-body energy
-    double rms_radius() const;     // spread about the center of mass
+    double angular_momentum() const; // total L about the origin (rotation signature)
+    double virial_ratio() const;     // 2*KE / |PE|; ~1 indicates a relaxed bound system
+    int bound_pair_count() const;    // pairs with negative total two-body energy
+    double rms_radius() const;       // spread about the center of mass
+    double max_radius() const;       // farthest body from the center of mass
 
 private:
     void accumulate_pair(int i, int j, std::vector<Vec2>& accel) const;

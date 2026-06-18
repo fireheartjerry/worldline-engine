@@ -121,6 +121,7 @@ void test_momentum_conservation_and_determinism() {
     sys.params.accel_cap = 0.0;    // disable cap so pairwise forces stay equal-and-opposite
     sys.params.confinement = 0.0;  // external trap would break momentum conservation
     sys.params.damping = 0.0;      // damping would bleed momentum
+    sys.params.swirl = 0.0;        // rotational forcing is single-body
     const auto stars = objects_for_scale(catalog, Scale::STELLAR);
     for (int i = 0; i < 6; ++i) {
         const UniverseObject& o = *stars[static_cast<std::size_t>(i % stars.size())];

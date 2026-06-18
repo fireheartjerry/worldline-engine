@@ -40,8 +40,6 @@ void populate_sandbox(NBodySystem& sys,
     };
     auto frand = [&]() { return static_cast<double>(next() % 1000000ull) / 1000000.0; };
 
-    const bool gravity_tier = tier.gravity_weight > 0.5;
-
     double total_ab = 0.0;
     for (const UniverseObject* o : objs) {
         total_ab += std::max(0.05, o->abundance);
@@ -58,6 +56,14 @@ void populate_sandbox(NBodySystem& sys,
     };
 
     const int count = std::max(2, body_count);
+    auto gaussian = [&]() { return (frand() + frand() + frand() - 1.5) * 1.15; }; // ~N(0,1)
+
+    // Pre-pick a few cluster centers for tiers that nucleate (nuclear).
+    Vec2 centers[5];
+    for (Vec2& c : centers) {
+        c = {(frand() * 2.0 - 1.0) * 3.2, (frand() * 2.0 - 1.0) * 3.2};
+    }
+
     double total_mass = 0.0;
     for (int i = 0; i < count; ++i) {
         const UniverseObject* o = pick();
@@ -68,29 +74,90 @@ void populate_sandbox(NBodySystem& sys,
         b.color = o->color;
         b.type = static_cast<int>(static_cast<std::size_t>(
             std::find(objs.begin(), objs.end(), o) - objs.begin()));
-        if (gravity_tier) {
+
+        // Tier-specific spawn position.
+        switch (scale) {
+        case Scale::SUBATOMIC: {
             const double ang = frand() * 2.0 * kPi;
-            const double rad = std::sqrt(frand()) * 4.5;
-            b.pos = {rad * std::cos(ang), rad * std::sin(ang)};
-        } else {
-            b.pos = {(frand() * 2.0 - 1.0) * 4.0, (frand() * 2.0 - 1.0) * 4.0};
+            b.pos = {std::sqrt(frand()) * 2.6 * std::cos(ang), std::sqrt(frand()) * 2.6 * std::sin(ang)};
+            break;
         }
+        case Scale::NUCLEAR: {
+            const Vec2 c = centers[i % 5];
+            b.pos = {c.x + gaussian() * 0.6, c.y + gaussian() * 0.6};
+            break;
+        }
+        case Scale::ATOMIC: {
+            const int side = 9;
+            const double gx = (i % side) - (side - 1) * 0.5;
+            const double gy = (i / side) - (side - 1) * 0.5;
+            b.pos = {gx * 0.95 + gaussian() * 0.15, gy * 0.95 + gaussian() * 0.15};
+            break;
+        }
+        case Scale::MOLECULAR: {
+            if (i % 2 == 0 || sys.bodies.empty()) {
+                b.pos = {(frand() * 2.0 - 1.0) * 4.2, (frand() * 2.0 - 1.0) * 4.2};
+            } else {
+                // Bond to the previous body at its preferred distance.
+                const Body& prev = sys.bodies.back();
+                const double r0 = sys.params.bond_range * (prev.radius + b.radius);
+                const double ang = frand() * 2.0 * kPi;
+                b.pos = {prev.pos.x + r0 * std::cos(ang), prev.pos.y + r0 * std::sin(ang)};
+            }
+            break;
+        }
+        case Scale::NANOSCALE: {
+            const double ang = frand() * 2.0 * kPi;
+            b.pos = {std::sqrt(frand()) * 5.5 * std::cos(ang), std::sqrt(frand()) * 5.5 * std::sin(ang)};
+            break;
+        }
+        default: { // gravity tiers: a disk
+            const double ang = frand() * 2.0 * kPi;
+            const double reach = (scale == Scale::GALACTIC || scale == Scale::COSMIC) ? 5.5 : 4.5;
+            b.pos = {std::sqrt(frand()) * reach * std::cos(ang), std::sqrt(frand()) * reach * std::sin(ang)};
+            break;
+        }
+        }
+
         b.vel = {0.0, 0.0};
         sys.bodies.push_back(b);
         total_mass += b.mass;
     }
 
-    if (gravity_tier && total_mass > 0.0) {
-        const double sign = (genome.cosmological_drift > 1.0) ? 1.0 : -1.0;
-        for (Body& b : sys.bodies) {
-            const double r = b.pos.length();
-            if (r > 1.0e-3) {
-                const Vec2 tang = {-b.pos.y / r, b.pos.x / r};
-                const double speed =
-                    0.30 * std::sqrt(sys.params.gravity * total_mass / std::max(r, 1.0));
-                b.vel = tang * (speed * sign);
+    // Tier-specific initial velocities.
+    const double drift_sign = (genome.cosmological_drift > 1.0) ? 1.0 : -1.0;
+    for (Body& b : sys.bodies) {
+        const double r = b.pos.length();
+        const Vec2 tang = (r > 1.0e-3) ? Vec2{-b.pos.y / r, b.pos.x / r} : Vec2{0.0, 0.0};
+        switch (scale) {
+        case Scale::SUBATOMIC:
+        case Scale::NANOSCALE:
+            b.vel = {gaussian() * 0.25, gaussian() * 0.25}; // thermal jitter
+            break;
+        case Scale::PLANETARY:
+        case Scale::STELLAR:
+            // Orbital support: Keplerian-ish circular speed with dispersion.
+            b.vel = tang * (drift_sign * 0.32 *
+                            std::sqrt(sys.params.gravity * total_mass / std::max(r, 1.0)));
+            if (scale == Scale::STELLAR) {
+                b.vel += Vec2{gaussian() * 0.25, gaussian() * 0.25};
             }
+            break;
+        case Scale::GALACTIC:
+            // Flat rotation curve: near-constant tangential speed at all radii.
+            b.vel = tang * (drift_sign * 1.5);
+            break;
+        case Scale::COSMIC:
+            // Hubble flow: outward velocity proportional to distance.
+            b.vel = b.pos * 0.55;
+            break;
+        default:
+            break; // NUCLEAR, ATOMIC, MOLECULAR start at rest and settle
         }
+    }
+
+    // Remove any net drift so the system stays centered on the stage.
+    if (total_mass > 0.0) {
         const Vec2 com_vel = sys.total_momentum() / total_mass;
         for (Body& b : sys.bodies) {
             b.vel -= com_vel;
