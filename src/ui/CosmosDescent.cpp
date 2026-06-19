@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <string>
 
 using namespace cosmos;
@@ -157,6 +158,60 @@ void descent_jump_to_depth(CosmosState& cosmos, int depth) {
     d.transition_dir = 0;
 }
 
+void descent_sibling(CosmosState& cosmos, int dir) {
+    DescentState& d = cosmos.descent;
+    if (d.depth() <= 0) return;
+    const std::uint64_t cur = d.focus().seed;
+    const ProcNode& parent = d.path[static_cast<std::size_t>(d.depth() - 1)];
+    const int n = static_cast<int>(parent.children.size());
+    int idx = -1;
+    for (int k = 0; k < n; ++k)
+        if (parent.children[static_cast<std::size_t>(k)].seed == cur) { idx = k; break; }
+    if (idx < 0 || n <= 1) return;
+    const int ni = ((idx + dir) % n + n) % n;
+    d.path.pop_back();
+    const ProcNode& par = d.path.back();
+    const ChildRef child = par.children[static_cast<std::size_t>(ni)];
+    ProcNode cn = d.universe->node(child.seed, child.kind, &par);
+    d.path.push_back(std::move(cn));
+    d.hovered_child = -1;
+    d.selected_child = -1;
+    d.live_seed = 0;
+    d.camera.target_zoom = d.camera.zoom = 1.0;
+    d.camera.target_pan = d.camera.pan = Vec2{};
+    d.camera.flash = 1.0f;
+    d.transition = 0.0f;
+    d.transition_dir = 0;
+}
+
+namespace {
+// Move the selection cursor to the nearest child in a screen direction (dx,dy).
+int select_directional(const DescentState& d, int from, float dirx, float diry) {
+    const int n = static_cast<int>(d.child_px.size());
+    if (n == 0) return -1;
+    float ox, oy;
+    if (from >= 0 && from < n) { ox = d.child_px[static_cast<std::size_t>(from)]; oy = d.child_py[static_cast<std::size_t>(from)]; }
+    else {
+        ox = 0.0f; oy = 0.0f;
+        for (int i = 0; i < n; ++i) { ox += d.child_px[static_cast<std::size_t>(i)]; oy += d.child_py[static_cast<std::size_t>(i)]; }
+        ox /= n; oy /= n;
+    }
+    int best = -1;
+    float best_score = 1e30f;
+    for (int i = 0; i < n; ++i) {
+        if (i == from) continue;
+        const float vx = d.child_px[static_cast<std::size_t>(i)] - ox;
+        const float vy = d.child_py[static_cast<std::size_t>(i)] - oy;
+        const float along = vx * dirx + vy * diry;     // projection onto the direction
+        if (along <= 1.0f) continue;                    // must be in the pressed direction
+        const float perp = std::abs(vx * diry - vy * dirx);
+        const float score = along + perp * 2.5f;         // prefer aligned + near
+        if (score < best_score) { best_score = score; best = i; }
+    }
+    return best;
+}
+} // namespace
+
 void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interactive) {
     descent_ensure_init(cosmos);
     DescentState& d = cosmos.descent;
@@ -167,6 +222,9 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
 
     if (interactive) {
         const bool over = CheckCollisionPointRec(GetMousePosition(), stage);
+        // Layout pass up front so the keyboard selection cursor and the mouse hover
+        // share one set of child screen positions.
+        fill_child_positions(cosmos, stage, t);
 
         // Cursor-anchored wheel zoom (world point under the cursor stays put).
         const float wheel = GetMouseWheelMove();
@@ -193,20 +251,56 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
         }
         if (!down) cam.dragging = false;
 
-        // Keyboard.
+        // Pan with WASD (arrows drive the selection cursor); zoom with +/-.
         const double pan_step = (4.0 * dt) / std::max(0.35, cam.target_zoom);
-        if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  cam.target_pan.x -= pan_step;
-        if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) cam.target_pan.x += pan_step;
-        if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    cam.target_pan.y -= pan_step;
-        if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))  cam.target_pan.y += pan_step;
+        if (IsKeyDown(KEY_A)) cam.target_pan.x -= pan_step;
+        if (IsKeyDown(KEY_D)) cam.target_pan.x += pan_step;
+        if (IsKeyDown(KEY_W)) cam.target_pan.y -= pan_step;
+        if (IsKeyDown(KEY_S)) cam.target_pan.y += pan_step;
         if (IsKeyDown(KEY_EQUAL) || IsKeyDown(KEY_KP_ADD))      cam.target_zoom *= std::exp(2.2 * dt);
         if (IsKeyDown(KEY_MINUS) || IsKeyDown(KEY_KP_SUBTRACT)) cam.target_zoom *= std::exp(-2.2 * dt);
+
+        // ── Selection cursor (keyboard): directional arrows, Tab cycle, number
+        //    quick-jump, Enter to enter, [ ] siblings, Home to root. ────────────
+        const int nchild = static_cast<int>(d.focus().children.size());
+        if (nchild > 0) {
+            int s = -1;
+            if (IsKeyPressed(KEY_RIGHT)) s = select_directional(d, d.selected_child, 1.0f, 0.0f);
+            else if (IsKeyPressed(KEY_LEFT))  s = select_directional(d, d.selected_child, -1.0f, 0.0f);
+            else if (IsKeyPressed(KEY_DOWN))  s = select_directional(d, d.selected_child, 0.0f, 1.0f);
+            else if (IsKeyPressed(KEY_UP))    s = select_directional(d, d.selected_child, 0.0f, -1.0f);
+            if (s >= 0) d.selected_child = s;
+            if (IsKeyPressed(KEY_TAB)) {
+                const int step = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? -1 : 1;
+                const int cur = d.selected_child < 0 ? 0 : d.selected_child;
+                d.selected_child = (cur + step + nchild) % nchild;
+            }
+            for (int k = 0; k < 9 && k < nchild; ++k)
+                if (IsKeyPressed(KEY_ONE + k)) d.selected_child = k;
+            if ((IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) && d.selected_child >= 0 &&
+                !node_is_leaf(d.focus_kind())) {
+                descent_push(cosmos, d.selected_child);
+            }
+        }
         if (IsKeyPressed(KEY_BACKSPACE)) descent_pop(cosmos);
+        if (IsKeyPressed(KEY_HOME)) descent_jump_to_depth(cosmos, 0);
+        if (IsKeyPressed(KEY_LEFT_BRACKET))  descent_sibling(cosmos, -1);
+        if (IsKeyPressed(KEY_RIGHT_BRACKET)) descent_sibling(cosmos, 1);
         if (IsKeyPressed(KEY_G)) d.analysis_open = !d.analysis_open;
 
-        // Single layout pass + O(1) spatial-hash hover with hysteresis (no flicker
-        // when two children are near-equidistant; scales to thousands of children).
-        fill_child_positions(cosmos, stage, t);
+        // ── Simulation time controls: pause, scrub speed, single step, perturb. ─
+        if (IsKeyPressed(KEY_SPACE)) d.sim_paused = !d.sim_paused;
+        if (IsKeyPressed(KEY_PERIOD)) d.sim_speed = std::min(16.0, d.sim_speed * 2.0);
+        if (IsKeyPressed(KEY_COMMA))  d.sim_speed = std::max(0.25, d.sim_speed * 0.5);
+        if (IsKeyPressed(KEY_O)) d.sim_step_once = true;
+        if (IsKeyPressed(KEY_X) && d.focus_species >= 0 &&
+            d.focus_species < static_cast<int>(d.live.community.species.size())) {
+            d.live.community.species[static_cast<std::size_t>(d.focus_species)].x *= 0.2; // perturb -> watch recovery
+            d.perturb_flash = 1.0;
+        }
+
+        // O(1) spatial-hash hover with hysteresis (no flicker when two children are
+        // near-equidistant; scales to thousands of children).
         d.hovered_child = -1;
         if (!cam.dragging && over) {
             const float radius = 26.0f * std::max(1.0f, static_cast<float>(cam.zoom) * 0.5f);
@@ -233,10 +327,11 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
                 d.hover_locked = cand;
             }
             d.hovered_child = d.hover_locked;
-            // Click a hovered non-leaf child to enter it.
-            if (d.hovered_child >= 0 && IsMouseButtonPressed(MOUSE_LEFT_BUTTON) &&
-                !node_is_leaf(d.focus_kind())) {
-                descent_push(cosmos, d.hovered_child);
+            if (d.hovered_child >= 0) d.selected_child = d.hovered_child; // unify mouse + keyboard cursor
+            // Click a hovered child: enter a non-leaf, or focus a species in an ecosystem.
+            if (d.hovered_child >= 0 && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                if (d.focus_kind() == NodeKind::Ecosystem) d.focus_species = d.hovered_child;
+                else if (!node_is_leaf(d.focus_kind())) descent_push(cosmos, d.hovered_child);
             }
         } else {
             d.hover_locked = -1;
@@ -287,12 +382,21 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
     // Live ecosystem: build on entry, then advance with a fixed timestep so the
     // food web breathes (predators lag prey) smoothly and FPS-independently, while
     // recording population history for the observability sparklines.
+    // Effective simulation timestep from the granular time controls.
+    double sdt = d.sim_paused ? 0.0 : dt * d.sim_speed;
+    if (d.sim_step_once) { sdt = d.live.clock.H; d.sim_step_once = false; }
+    d.perturb_flash = std::max(0.0, d.perturb_flash - dt * 1.5);
+
     if (d.focus_kind() == NodeKind::Ecosystem) {
         if (d.live_seed != d.focus().seed) {
             ecosim::init_live(d.live, community_for_ecosystem(d.focus()));
             d.live_seed = d.focus().seed;
+            d.focus_species = -1;
         }
-        ecosim::advance(d.live, dt);
+        // The selection cursor doubles as the focused species for cross-highlight.
+        if (d.selected_child >= 0 && d.selected_child < static_cast<int>(d.live.community.species.size()))
+            d.focus_species = d.selected_child;
+        ecosim::advance(d.live, sdt);
     } else if (d.focus_kind() == NodeKind::Creature && d.depth() > 0) {
         // Keep the parent ecosystem's community live so a creature is always shown
         // in its ecological context (and the analysis deck has its data), no matter
@@ -303,7 +407,7 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
                 ecosim::init_live(d.live, community_for_ecosystem(ecop));
                 d.live_seed = ecop.seed;
             }
-            ecosim::advance(d.live, dt);
+            ecosim::advance(d.live, sdt);
         }
     }
 }
@@ -861,6 +965,43 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         DrawCircleV({lb.x + 12.0f * ui, lb.y + lb.height * 0.5f}, 4.0f * ui,
                     with_alpha(WL::PLASMA_GREEN, static_cast<unsigned char>(140 + 115 * pa)));
         draw_text("LIVE", {lb.x + 22.0f * ui, lb.y + 4.0f * ui}, 11.0f * ui, WL::PLASMA_GREEN);
+    }
+
+    // Selection cursor reticle (keyboard/mouse), distinct from a bare hover: a
+    // bright animated bracket + index, so the focused child is unmistakable.
+    if (d.selected_child >= 0 && d.selected_child < static_cast<int>(d.child_px.size())) {
+        const Vector2 p = child_pos(d, d.selected_child);
+        const float rs = (14.0f + 2.0f * std::sin(t * 4.0f)) * ui;
+        const Color sc_col = (eco_live && d.selected_child == d.focus_species) ? WL::PLASMA_GREEN : WL::CYAN_CORE;
+        draw_corner_brackets({p.x - rs, p.y - rs, rs * 2.0f, rs * 2.0f}, sc_col, 6.0f * ui, 2.0f, 0.0f);
+        DrawCircleLines(static_cast<int>(p.x), static_cast<int>(p.y), rs + 3.0f * ui, with_alpha(sc_col, 70));
+    }
+
+    // Granular simulation time-control HUD (when a community is live).
+    const bool sim_live = (d.live_seed != 0) &&
+                          (f.kind == NodeKind::Ecosystem || f.kind == NodeKind::Creature);
+    if (sim_live) {
+        const Rectangle tc = {stage.x + 12.0f * ui, stage.y + 12.0f * ui, 188.0f * ui, 22.0f * ui};
+        draw_glass_panel(tc, {8, 18, 30, 215}, with_alpha(WL::CYAN_DIM, 120), 0.35f, 2);
+        // Play/pause glyph.
+        const Vector2 g = {tc.x + 12.0f * ui, tc.y + tc.height * 0.5f};
+        if (d.sim_paused) {
+            DrawRectangle(static_cast<int>(g.x - 4.0f * ui), static_cast<int>(g.y - 5.0f * ui), static_cast<int>(3.0f * ui), static_cast<int>(10.0f * ui), WL::XENON_CORE);
+            DrawRectangle(static_cast<int>(g.x + 1.0f * ui), static_cast<int>(g.y - 5.0f * ui), static_cast<int>(3.0f * ui), static_cast<int>(10.0f * ui), WL::XENON_CORE);
+        } else {
+            DrawTriangle({g.x - 4.0f * ui, g.y - 5.0f * ui}, {g.x - 4.0f * ui, g.y + 5.0f * ui},
+                         {g.x + 5.0f * ui, g.y}, WL::PLASMA_GREEN);
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s   %.2gx   t=%.0fs", d.sim_paused ? "PAUSED" : "RUN",
+                      d.sim_speed, d.live.clock.sim_time);
+        draw_text(buf, {tc.x + 26.0f * ui, tc.y + 5.0f * ui}, 10.0f * ui, WL::TEXT_SECONDARY);
+        draw_text("space pause | , . speed | o step | x perturb",
+                  {tc.x, tc.y + tc.height + 2.0f * ui}, 8.0f * ui, with_alpha(WL::TEXT_TERTIARY, 170));
+        if (d.perturb_flash > 0.001) {
+            DrawRectangleRoundedLines(stage, 0.02f, 12, 2.0f,
+                                      with_alpha(WL::XENON_CORE, static_cast<unsigned char>(120 * d.perturb_flash)));
+        }
     }
 
     // Boundary flash ring.

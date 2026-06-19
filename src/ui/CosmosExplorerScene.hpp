@@ -55,6 +55,21 @@ struct DescentState {
     int hover_locked = -1;   // hover hysteresis (prevents flip-flop near ties)
     bool analysis_open = true; // tier scientific-instrument deck (toggle with G)
 
+    // ── Navigation shell: a keyboard-driven selection cursor (independent of the
+    //    mouse) so every node is reachable precisely; arrows move it directionally,
+    //    Tab cycles, Enter enters, [ ] cycle siblings, number keys jump, Home roots.
+    int selected_child = -1;
+
+    // ── Simulation interior: granular time control so the full behaviour space is
+    //    observable — pause to study, scrub speed to reach long-term cycles, step
+    //    one tick, perturb a population and watch it recover. A focused species is
+    //    cross-highlighted everywhere (web, sparklines, deck).
+    bool   sim_paused = false;
+    double sim_speed = 1.0;     // 0.25 .. 16x time dilation
+    bool   sim_step_once = false;
+    int    focus_species = -1;  // selected species for cross-highlight / perturbation
+    double perturb_flash = 0.0; // brief visual cue after a perturbation
+
     const cosmos::ProcNode& focus() const { return path.back(); }
     cosmos::NodeKind focus_kind() const {
         return path.empty() ? cosmos::NodeKind::Universe : path.back().kind;

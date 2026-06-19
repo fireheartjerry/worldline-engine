@@ -30,5 +30,6 @@ void draw_descent_hud(const CosmosState& cosmos, Rectangle stage, float ui_scale
 void descent_push(CosmosState& cosmos, int child_index); // enter focus().children[i]
 void descent_pop(CosmosState& cosmos);                    // ascend one level
 void descent_jump_to_depth(CosmosState& cosmos, int depth);
+void descent_sibling(CosmosState& cosmos, int dir);       // jump to prev/next sibling
 
 } // namespace cosmos_ui
