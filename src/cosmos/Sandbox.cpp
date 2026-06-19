@@ -1,7 +1,5 @@
 #include "cosmos/Sandbox.hpp"
 
-#include "cosmos/DetMath.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -12,17 +10,20 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 
-std::uint64_t spawn_seed(const LawGenome &genome, Scale scale) {
+std::uint64_t spawn_seed(const LawGenome& genome, Scale scale) {
     std::uint64_t rng = genome.signature ^ (0x9E3779B97F4A7C15ull * (scale_index(scale) + 1));
     return (rng == 0) ? 0x1234567811111111ull : rng;
 }
 
 } // namespace
 
-void populate_sandbox(NBodySystem &sys, const std::vector<UniverseObject> &catalog,
-                      const LawGenome &genome, Scale scale, int body_count) {
+void populate_sandbox(NBodySystem& sys,
+                      const std::vector<UniverseObject>& catalog,
+                      const LawGenome& genome,
+                      Scale scale,
+                      int body_count) {
     sys.bodies.clear();
-    const ScaleTier &tier = tier_for(scale);
+    const ScaleTier& tier = tier_for(scale);
     sys.params = make_force_params(tier, genome);
 
     const auto objs = objects_for_scale(catalog, scale);
@@ -40,12 +41,12 @@ void populate_sandbox(NBodySystem &sys, const std::vector<UniverseObject> &catal
     auto frand = [&]() { return static_cast<double>(next() % 1000000ull) / 1000000.0; };
 
     double total_ab = 0.0;
-    for (const UniverseObject *o : objs) {
+    for (const UniverseObject* o : objs) {
         total_ab += std::max(0.05, o->abundance);
     }
-    auto pick = [&]() -> const UniverseObject * {
+    auto pick = [&]() -> const UniverseObject* {
         double r = frand() * total_ab;
-        for (const UniverseObject *o : objs) {
+        for (const UniverseObject* o : objs) {
             r -= std::max(0.05, o->abundance);
             if (r <= 0.0) {
                 return o;
@@ -59,27 +60,26 @@ void populate_sandbox(NBodySystem &sys, const std::vector<UniverseObject> &catal
 
     // Pre-pick a few cluster centers for tiers that nucleate (nuclear).
     Vec2 centers[5];
-    for (Vec2 &c : centers) {
+    for (Vec2& c : centers) {
         c = {(frand() * 2.0 - 1.0) * 3.2, (frand() * 2.0 - 1.0) * 3.2};
     }
 
     double total_mass = 0.0;
     for (int i = 0; i < count; ++i) {
-        const UniverseObject *o = pick();
+        const UniverseObject* o = pick();
         Body b;
         b.mass = o->sim_mass;
         b.radius = o->sim_radius;
         b.charge = o->sim_charge;
         b.color = o->color;
-        b.type = static_cast<int>(
-            static_cast<std::size_t>(std::find(objs.begin(), objs.end(), o) - objs.begin()));
+        b.type = static_cast<int>(static_cast<std::size_t>(
+            std::find(objs.begin(), objs.end(), o) - objs.begin()));
 
         // Tier-specific spawn position.
         switch (scale) {
         case Scale::SUBATOMIC: {
             const double ang = frand() * 2.0 * kPi;
-            b.pos = {std::sqrt(frand()) * 2.6 * detmath::cos(ang),
-                     std::sqrt(frand()) * 2.6 * detmath::sin(ang)};
+            b.pos = {std::sqrt(frand()) * 2.6 * std::cos(ang), std::sqrt(frand()) * 2.6 * std::sin(ang)};
             break;
         }
         case Scale::NUCLEAR: {
@@ -99,24 +99,22 @@ void populate_sandbox(NBodySystem &sys, const std::vector<UniverseObject> &catal
                 b.pos = {(frand() * 2.0 - 1.0) * 4.2, (frand() * 2.0 - 1.0) * 4.2};
             } else {
                 // Bond to the previous body at its preferred distance.
-                const Body &prev = sys.bodies.back();
+                const Body& prev = sys.bodies.back();
                 const double r0 = sys.params.bond_range * (prev.radius + b.radius);
                 const double ang = frand() * 2.0 * kPi;
-                b.pos = {prev.pos.x + r0 * detmath::cos(ang), prev.pos.y + r0 * detmath::sin(ang)};
+                b.pos = {prev.pos.x + r0 * std::cos(ang), prev.pos.y + r0 * std::sin(ang)};
             }
             break;
         }
         case Scale::NANOSCALE: {
             const double ang = frand() * 2.0 * kPi;
-            b.pos = {std::sqrt(frand()) * 5.5 * detmath::cos(ang),
-                     std::sqrt(frand()) * 5.5 * detmath::sin(ang)};
+            b.pos = {std::sqrt(frand()) * 5.5 * std::cos(ang), std::sqrt(frand()) * 5.5 * std::sin(ang)};
             break;
         }
         default: { // gravity tiers: a disk
             const double ang = frand() * 2.0 * kPi;
             const double reach = (scale == Scale::GALACTIC || scale == Scale::COSMIC) ? 5.5 : 4.5;
-            b.pos = {std::sqrt(frand()) * reach * detmath::cos(ang),
-                     std::sqrt(frand()) * reach * detmath::sin(ang)};
+            b.pos = {std::sqrt(frand()) * reach * std::cos(ang), std::sqrt(frand()) * reach * std::sin(ang)};
             break;
         }
         }
@@ -134,10 +132,10 @@ void populate_sandbox(NBodySystem &sys, const std::vector<UniverseObject> &catal
     const double driftN = norm(genome.cosmological_drift, 0.70, 1.50);
     const double gravN = norm(genome.coupling_gravity, 0.40, 1.70);
     const double drift_sign = (genome.cosmological_drift > 1.0) ? 1.0 : -1.0;
-    const double orbit_k = 0.38 * (0.90 + 0.25 * gravN); // orbital support
-    const double gal_orbit = 0.60 + 0.20 * driftN;       // sub-circular disk support
-    const double expand_k = 0.45 + 0.35 * driftN;        // [0.45,0.80]
-    for (Body &b : sys.bodies) {
+    const double orbit_k = 0.38 * (0.90 + 0.25 * gravN);  // orbital support
+    const double gal_orbit = 0.60 + 0.20 * driftN;        // sub-circular disk support
+    const double expand_k = 0.45 + 0.35 * driftN;          // [0.45,0.80]
+    for (Body& b : sys.bodies) {
         const double r = b.pos.length();
         const Vec2 tang = (r > 1.0e-3) ? Vec2{-b.pos.y / r, b.pos.x / r} : Vec2{0.0, 0.0};
         switch (scale) {
@@ -175,27 +173,28 @@ void populate_sandbox(NBodySystem &sys, const std::vector<UniverseObject> &catal
     // Remove any net drift so the system stays centered on the stage.
     if (total_mass > 0.0) {
         const Vec2 com_vel = sys.total_momentum() / total_mass;
-        for (Body &b : sys.bodies) {
+        for (Body& b : sys.bodies) {
             b.vel -= com_vel;
         }
     }
 }
 
-void advance_sandbox(NBodySystem &sys, int steps) {
+void advance_sandbox(NBodySystem& sys, int steps) {
     for (int i = 0; i < steps; ++i) {
         sys.step(kSandboxDt, kSandboxSubsteps);
     }
 }
 
-SandboxStats sandbox_stats(const NBodySystem &sys) {
+SandboxStats sandbox_stats(const NBodySystem& sys) {
     SandboxStats stats;
     stats.bodies = static_cast<int>(sys.bodies.size());
     if (sys.bodies.empty()) {
         return stats;
     }
-    for (const Body &b : sys.bodies) {
-        if (!std::isfinite(b.pos.x) || !std::isfinite(b.pos.y) || !std::isfinite(b.vel.x) ||
-            !std::isfinite(b.vel.y) || std::abs(b.pos.x) > 1.0e6 || std::abs(b.pos.y) > 1.0e6) {
+    for (const Body& b : sys.bodies) {
+        if (!std::isfinite(b.pos.x) || !std::isfinite(b.pos.y) ||
+            !std::isfinite(b.vel.x) || !std::isfinite(b.vel.y) ||
+            std::abs(b.pos.x) > 1.0e6 || std::abs(b.pos.y) > 1.0e6) {
             stats.finite = false;
         }
     }
@@ -211,7 +210,7 @@ SandboxStats sandbox_stats(const NBodySystem &sys) {
 
 namespace {
 
-double mean_nearest_neighbor(const NBodySystem &sys) {
+double mean_nearest_neighbor(const NBodySystem& sys) {
     if (sys.bodies.size() < 2) {
         return 0.0;
     }
@@ -219,8 +218,7 @@ double mean_nearest_neighbor(const NBodySystem &sys) {
     for (std::size_t i = 0; i < sys.bodies.size(); ++i) {
         double best = 1.0e300;
         for (std::size_t j = 0; j < sys.bodies.size(); ++j) {
-            if (i == j)
-                continue;
+            if (i == j) continue;
             best = std::min(best, (sys.bodies[j].pos - sys.bodies[i].pos).length());
         }
         total += best;
@@ -228,7 +226,7 @@ double mean_nearest_neighbor(const NBodySystem &sys) {
     return total / static_cast<double>(sys.bodies.size());
 }
 
-int close_pair_count(const NBodySystem &sys, double max_distance) {
+int close_pair_count(const NBodySystem& sys, double max_distance) {
     int n = 0;
     for (std::size_t i = 0; i < sys.bodies.size(); ++i) {
         for (std::size_t j = i + 1; j < sys.bodies.size(); ++j) {
@@ -240,12 +238,12 @@ int close_pair_count(const NBodySystem &sys, double max_distance) {
     return n;
 }
 
-double mean_radial_velocity(const NBodySystem &sys) {
+double mean_radial_velocity(const NBodySystem& sys) {
     if (sys.bodies.empty()) {
         return 0.0;
     }
     double total = 0.0;
-    for (const Body &b : sys.bodies) {
+    for (const Body& b : sys.bodies) {
         const double r = b.pos.length();
         if (r > 1.0e-6) {
             total += b.pos.dot(b.vel) / r; // outward component
@@ -256,28 +254,18 @@ double mean_radial_velocity(const NBodySystem &sys) {
 
 } // namespace
 
-SignatureMetric tier_signature_metric(Scale scale, const NBodySystem &sys) {
+SignatureMetric tier_signature_metric(Scale scale, const NBodySystem& sys) {
     switch (scale) {
-    case Scale::SUBATOMIC:
-        return {"CONFINEMENT", sys.max_radius()};
-    case Scale::NUCLEAR:
-        return {"NUCLEON BONDS", static_cast<double>(close_pair_count(sys, 1.4))};
-    case Scale::ATOMIC:
-        return {"LATTICE SPACING", mean_nearest_neighbor(sys)};
-    case Scale::MOLECULAR:
-        return {"MOLECULE BONDS", static_cast<double>(close_pair_count(sys, 2.8))};
-    case Scale::NANOSCALE:
-        return {"AGGREGATION", mean_nearest_neighbor(sys)};
-    case Scale::PLANETARY:
-        return {"ORBITAL L", std::abs(sys.angular_momentum())};
-    case Scale::STELLAR:
-        return {"BOUND PAIRS", static_cast<double>(sys.bound_pair_count())};
-    case Scale::GALACTIC:
-        return {"ROTATION L", std::abs(sys.angular_momentum())};
-    case Scale::COSMIC:
-        return {"EXPANSION", mean_radial_velocity(sys)};
-    case Scale::COUNT:
-        break;
+    case Scale::SUBATOMIC: return {"CONFINEMENT", sys.max_radius()};
+    case Scale::NUCLEAR:   return {"NUCLEON BONDS", static_cast<double>(close_pair_count(sys, 1.4))};
+    case Scale::ATOMIC:    return {"LATTICE SPACING", mean_nearest_neighbor(sys)};
+    case Scale::MOLECULAR: return {"MOLECULE BONDS", static_cast<double>(close_pair_count(sys, 2.8))};
+    case Scale::NANOSCALE: return {"AGGREGATION", mean_nearest_neighbor(sys)};
+    case Scale::PLANETARY: return {"ORBITAL L", std::abs(sys.angular_momentum())};
+    case Scale::STELLAR:   return {"BOUND PAIRS", static_cast<double>(sys.bound_pair_count())};
+    case Scale::GALACTIC:  return {"ROTATION L", std::abs(sys.angular_momentum())};
+    case Scale::COSMIC:    return {"EXPANSION", mean_radial_velocity(sys)};
+    case Scale::COUNT:     break;
     }
     return {"", 0.0};
 }

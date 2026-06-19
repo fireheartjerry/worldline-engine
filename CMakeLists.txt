@@ -6,17 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 enable_testing()
 
-# The seeded universe and the N-body sandbox must be bit-reproducible across
-# compilers and platforms (see cosmos/DetMath.hpp). Disable floating-point
-# contraction so an expression like a*b+c is never silently fused into a single
-# fma() on one compiler (e.g. Clang/ARM) but not another (GCC) -- that fusion
-# changes the last bit and, amplified over hundreds of chaotic integration
-# steps, makes the simulation diverge between platforms. MSVC does not contract
-# under its default /fp:precise, so no flag is needed there.
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(-ffp-contract=off)
-endif()
-
 function(worldline_apply_warnings target_name)
     if (MSVC)
         target_compile_options(${target_name} PRIVATE /W4 /permissive-)
@@ -410,12 +399,6 @@ target_include_directories(worldline_cosmos_atomiccollisions_tests PRIVATE ${CMA
 target_link_libraries(worldline_cosmos_atomiccollisions_tests PRIVATE worldline_cosmos)
 worldline_apply_warnings(worldline_cosmos_atomiccollisions_tests)
 add_test(NAME cosmos_atomiccollisions_verification COMMAND worldline_cosmos_atomiccollisions_tests)
-
-add_executable(worldline_cosmos_detmath_tests tests/cosmos_detmath_verification.cpp)
-target_include_directories(worldline_cosmos_detmath_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(worldline_cosmos_detmath_tests PRIVATE worldline_cosmos)
-worldline_apply_warnings(worldline_cosmos_detmath_tests)
-add_test(NAME cosmos_detmath_verification COMMAND worldline_cosmos_detmath_tests)
 
 add_executable(worldline_cosmos_cosmostats_tests tests/cosmos_cosmostats_verification.cpp)
 target_include_directories(worldline_cosmos_cosmostats_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

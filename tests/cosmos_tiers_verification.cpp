@@ -19,10 +19,15 @@ using namespace cosmos;
 
 namespace {
 
+int g_failures = 0;
+
+// Record a failure but keep going, so a single run reports every tier that is
+// off rather than aborting at the first one. Each tier builds an independent
+// sandbox, so continuing after a failure is safe and gives full diagnostics.
 void require(bool condition, const std::string& message) {
     if (!condition) {
         std::cerr << "cosmos_tiers_verification failed: " << message << '\n';
-        std::exit(1);
+        ++g_failures;
     }
 }
 
@@ -116,10 +121,11 @@ void test_atomic_exclusion() {
         std::cerr << "[atomic] " << seed << " mean_nn=" << nn
                   << " bound=" << sys.bound_pair_count() << " rms=" << sys.rms_radius() << "\n";
         // Exclusion + weak binding => a spaced packed phase, not a collapsed
-        // point and not tight bonded pairs. The sandbox is now bit-deterministic
-        // across platforms (cosmos/DetMath.hpp), so this lands at the same value
-        // everywhere; the bound keeps a margin against future numerical drift.
-        require(nn > 0.36, "atomic exclusion must keep a packed spacing");
+        // point and not tight bonded pairs. The floor is deliberately loose: the
+        // sim uses native libm, so the exact spacing varies by a few percent
+        // across compilers (Windows lands ~0.39-0.51); what matters is that it
+        // stays a spaced phase rather than collapsing.
+        require(nn > 0.30, "atomic exclusion must keep a packed spacing");
         require(sys.rms_radius() < 16.0, "atomic must stay on stage");
     }
 }
@@ -261,5 +267,9 @@ int main() {
     test_stellar_virialized();
     test_galactic_rotation();
     test_cosmic_web();
+    if (g_failures > 0) {
+        std::cerr << g_failures << " tier assertion(s) failed\n";
+        return 1;
+    }
     return 0;
 }

@@ -1,13 +1,11 @@
 #include "cosmos/NBodySystem.hpp"
 
-#include "cosmos/DetMath.hpp"
-
 #include <algorithm>
 #include <cmath>
 
 namespace cosmos {
 
-ForceParams make_force_params(const ScaleTier &tier, const LawGenome &genome) {
+ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
     // Each tier has its own characteristic force law. The genome modulates every
     // knob within a band that preserves the qualitative signature (confinement,
     // bonding, orbits, rotation, expansion) while making universes differ
@@ -120,12 +118,14 @@ namespace {
 
 // Scalar coefficient k such that the pair force on body i is k * r, with
 // r = pos_j - pos_i. Aggregates every force term (all act along r).
-double pair_force_coeff(const Body &bi, const Body &bj, const ForceParams &p, double d2) {
+double pair_force_coeff(const Body& bi, const Body& bj, const ForceParams& p,
+                        double d2) {
     const double soft2 = d2 + p.softening * p.softening;
     const double d = std::sqrt(std::max(d2, 1.0e-18));
 
     // Gravity (softened, potential-consistent for any exponent).
-    double coeff = p.gravity * bi.mass * bj.mass * detmath::pow(soft2, -(p.exponent + 1.0) * 0.5);
+    double coeff = p.gravity * bi.mass * bj.mass *
+                   std::pow(soft2, -(p.exponent + 1.0) * 0.5);
 
     // Linear confinement: attraction that grows with separation (quark-style).
     if (p.linear != 0.0) {
@@ -134,14 +134,14 @@ double pair_force_coeff(const Body &bi, const Body &bj, const ForceParams &p, do
 
     // Coulomb: like charges (product > 0) push apart, hence the minus sign.
     if (p.charge != 0.0) {
-        coeff += -p.charge * bi.charge * bj.charge * detmath::pow(soft2, -1.5);
+        coeff += -p.charge * bi.charge * bj.charge * std::pow(soft2, -1.5);
     }
 
     // Soft-core exclusion: strong short-range repulsion preventing overlap.
     if (p.core != 0.0) {
         const double sigma = bi.radius + bj.radius;
-        coeff += p.core * p.core_power * detmath::pow(sigma, p.core_power) *
-                 detmath::pow(soft2, -(p.core_power + 2.0) * 0.5);
+        coeff += p.core * p.core_power * std::pow(sigma, p.core_power) *
+                 std::pow(soft2, -(p.core_power + 2.0) * 0.5);
     }
 
     // Short-range binding well centered at ~contact distance.
@@ -150,7 +150,7 @@ double pair_force_coeff(const Body &bi, const Body &bj, const ForceParams &p, do
         const double r0 = p.bond_range * sigma;
         const double w = std::max(p.bond_width * sigma, 1.0e-6);
         const double delta = d - r0;
-        const double well = detmath::exp(-(delta * delta) / (2.0 * w * w));
+        const double well = std::exp(-(delta * delta) / (2.0 * w * w));
         // force_d = -dU/dd with U = -strong*well; project onto r via /d.
         const double force_d = -p.strong * (delta / (w * w)) * well;
         coeff += force_d / d;
@@ -161,9 +161,9 @@ double pair_force_coeff(const Body &bi, const Body &bj, const ForceParams &p, do
 
 } // namespace
 
-void NBodySystem::accumulate_pair(int i, int j, std::vector<Vec2> &accel) const {
-    const Body &bi = bodies[static_cast<std::size_t>(i)];
-    const Body &bj = bodies[static_cast<std::size_t>(j)];
+void NBodySystem::accumulate_pair(int i, int j, std::vector<Vec2>& accel) const {
+    const Body& bi = bodies[static_cast<std::size_t>(i)];
+    const Body& bj = bodies[static_cast<std::size_t>(j)];
     const Vec2 r = bj.pos - bi.pos;
     const double d2 = r.length_sq();
     const double coeff = pair_force_coeff(bi, bj, params, d2);
@@ -187,12 +187,12 @@ std::vector<Vec2> NBodySystem::accelerations() const {
     }
     if (params.swirl != 0.0) {
         for (std::size_t i = 0; i < n; ++i) {
-            const Vec2 &q = bodies[i].pos;
+            const Vec2& q = bodies[i].pos;
             accel[i] += Vec2{-q.y, q.x} * params.swirl;
         }
     }
     if (params.accel_cap > 0.0) {
-        for (Vec2 &a : accel) {
+        for (Vec2& a : accel) {
             const double mag = a.length();
             if (mag > params.accel_cap) {
                 a = a * (params.accel_cap / mag);
@@ -223,7 +223,7 @@ void NBodySystem::step(double dt, int substeps) {
         }
         if (params.damping > 0.0) {
             const double factor = std::max(0.0, 1.0 - params.damping * h);
-            for (Body &b : bodies) {
+            for (Body& b : bodies) {
                 b.vel = b.vel * factor;
             }
         }
@@ -232,15 +232,15 @@ void NBodySystem::step(double dt, int substeps) {
 
 double NBodySystem::kinetic_energy() const {
     double ke = 0.0;
-    for (const Body &b : bodies) {
+    for (const Body& b : bodies) {
         ke += 0.5 * b.mass * b.vel.length_sq();
     }
     return ke;
 }
 
 double NBodySystem::pair_potential(int i, int j) const {
-    const Body &bi = bodies[static_cast<std::size_t>(i)];
-    const Body &bj = bodies[static_cast<std::size_t>(j)];
+    const Body& bi = bodies[static_cast<std::size_t>(i)];
+    const Body& bj = bodies[static_cast<std::size_t>(j)];
     const Vec2 r = bj.pos - bi.pos;
     const double soft2 = r.length_sq() + params.softening * params.softening;
     const double softd = std::sqrt(soft2);
@@ -249,17 +249,17 @@ double NBodySystem::pair_potential(int i, int j) const {
     // Gravity potential consistent with the softened force.
     if (std::abs(params.exponent - 1.0) > 1.0e-6) {
         u += -params.gravity * bi.mass * bj.mass /
-             ((params.exponent - 1.0) * detmath::pow(soft2, (params.exponent - 1.0) * 0.5));
+             ((params.exponent - 1.0) * std::pow(soft2, (params.exponent - 1.0) * 0.5));
     } else {
-        u += params.gravity * bi.mass * bj.mass * detmath::log(softd);
+        u += params.gravity * bi.mass * bj.mass * std::log(softd);
     }
     if (params.charge != 0.0) {
         u += params.charge * bi.charge * bj.charge / softd;
     }
     if (params.core != 0.0) {
         const double sigma = bi.radius + bj.radius;
-        u += params.core * detmath::pow(sigma, params.core_power) *
-             detmath::pow(soft2, -params.core_power * 0.5);
+        u += params.core * std::pow(sigma, params.core_power) *
+             std::pow(soft2, -params.core_power * 0.5);
     }
     if (params.strong != 0.0) {
         const double sigma = bi.radius + bj.radius;
@@ -267,7 +267,7 @@ double NBodySystem::pair_potential(int i, int j) const {
         const double w = std::max(params.bond_width * sigma, 1.0e-6);
         const double d = std::sqrt(std::max(r.length_sq(), 0.0));
         const double delta = d - r0;
-        u += -params.strong * detmath::exp(-(delta * delta) / (2.0 * w * w));
+        u += -params.strong * std::exp(-(delta * delta) / (2.0 * w * w));
     }
     if (params.linear != 0.0) {
         u += -0.5 * params.linear * r.length_sq();
@@ -283,7 +283,7 @@ double NBodySystem::potential_energy() const {
         }
     }
     if (params.confinement > 0.0) {
-        for (const Body &b : bodies) {
+        for (const Body& b : bodies) {
             pe += 0.5 * params.confinement * b.mass * b.pos.length_sq();
         }
     }
@@ -292,7 +292,7 @@ double NBodySystem::potential_energy() const {
 
 Vec2 NBodySystem::total_momentum() const {
     Vec2 p{};
-    for (const Body &b : bodies) {
+    for (const Body& b : bodies) {
         p += b.vel * b.mass;
     }
     return p;
@@ -301,7 +301,7 @@ Vec2 NBodySystem::total_momentum() const {
 Vec2 NBodySystem::center_of_mass() const {
     Vec2 c{};
     double m = 0.0;
-    for (const Body &b : bodies) {
+    for (const Body& b : bodies) {
         c += b.pos * b.mass;
         m += b.mass;
     }
@@ -310,7 +310,7 @@ Vec2 NBodySystem::center_of_mass() const {
 
 double NBodySystem::angular_momentum() const {
     double l = 0.0;
-    for (const Body &b : bodies) {
+    for (const Body& b : bodies) {
         l += b.mass * (b.pos.x * b.vel.y - b.pos.y * b.vel.x);
     }
     return l;
@@ -325,8 +325,8 @@ int NBodySystem::bound_pair_count() const {
     int count = 0;
     for (std::size_t i = 0; i < bodies.size(); ++i) {
         for (std::size_t j = i + 1; j < bodies.size(); ++j) {
-            const Body &bi = bodies[i];
-            const Body &bj = bodies[j];
+            const Body& bi = bodies[i];
+            const Body& bj = bodies[j];
             const double mu = (bi.mass * bj.mass) / std::max(bi.mass + bj.mass, 1.0e-12);
             const Vec2 dv = bj.vel - bi.vel;
             const double pair_ke = 0.5 * mu * dv.length_sq();
@@ -344,7 +344,7 @@ double NBodySystem::rms_radius() const {
     }
     const Vec2 com = center_of_mass();
     double sum = 0.0;
-    for (const Body &b : bodies) {
+    for (const Body& b : bodies) {
         sum += (b.pos - com).length_sq();
     }
     return std::sqrt(sum / static_cast<double>(bodies.size()));
@@ -353,7 +353,7 @@ double NBodySystem::rms_radius() const {
 double NBodySystem::max_radius() const {
     const Vec2 com = center_of_mass();
     double m = 0.0;
-    for (const Body &b : bodies) {
+    for (const Body& b : bodies) {
         m = std::max(m, (b.pos - com).length());
     }
     return m;
