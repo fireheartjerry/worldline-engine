@@ -96,6 +96,14 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
   plus a wormhole, up to galaxies and the cosmic web and its voids
 - real SI anchors that drive computed physics in the inspector — density,
   Schwarzschild radius, escape velocity, and compactness derived from `G` and `c`
+- a research-grounded quantum & Planck-scale instrument set for the smallest tier
+  (`cosmos/QuantumScale.hpp`): Planck units re-derived from `hbar`/`c`/`G`, Compton
+  and de Broglie / thermal wavelengths, the Compton–Schwarzschild crossover that
+  motivates the Planck-mass floor, Heisenberg bounds, the quantum harmonic
+  oscillator, the Bohr/hydrogen energy ladder (13.6 eV ground state, Lyman/Balmer
+  lines), and particle decay width ↔ lifetime — surfaced live in the inspector so
+  subatomic objects read out rest energy (MeV), Compton wavelength and their size
+  in Planck lengths instead of meaningless gravity numbers
 - a deterministic, lazily-generated, LRU-cached procedural universe you can
   descend into by zooming — galaxy → star system → planet → ecosystem → creature
   — with bounded work and memory (same place always regenerates identically)

@@ -3,6 +3,7 @@
 
 #include "app/WorldlineStorage.hpp"
 #include "cosmos/Analysis.hpp"
+#include "cosmos/QuantumScale.hpp"
 #include "cosmos/Sandbox.hpp"
 
 #include <algorithm>
@@ -278,21 +279,45 @@ void draw_inspector(const CosmosState& cosmos, Rectangle rect, float scale) {
     tile(0, 2, "STABILITY", fmt_fixed(o.stability, 2));
     tile(1, 2, "BINDING", fmt_fixed(o.binding, 2));
 
-    // Derived physics — computed live from the SI mass/radius anchors
-    // (display only; the sandbox dynamics are dimensionless and unaffected).
+    // Derived physics — computed live from the SI anchors (display only; the
+    // sandbox dynamics are dimensionless and unaffected). The small "quantum"
+    // tiers (subatomic..nanoscale) are gravity-negligible, so they read out
+    // quantum instruments — rest energy, Compton & thermal wavelengths, and the
+    // Heisenberg confinement bound — instead of the Schwarzschild/escape numbers
+    // that only mean something for massive bodies.
     const DerivedQuantities dq = derive_quantities(o.rest_mass_kg, o.radius_m);
-    tile(0, 3, "DENSITY (kg/m3)", fmt_sci(dq.density_kg_m3));
-    tile(1, 3, "SCHWARZSCHILD (m)", fmt_sci(dq.schwarzschild_m));
-    tile(0, 4, "ESCAPE V (m/s)", fmt_sci(dq.escape_velocity_ms));
-    tile(1, 4, "COMPACTNESS rs/r", fmt_fixed(dq.compactness, 3));
+    const bool quantum_scale =
+        scale_index(cosmos.scale) <= scale_index(Scale::NANOSCALE);
+    if (quantum_scale) {
+        tile(0, 3, "REST ENERGY (MeV)", fmt_sci(quantum::rest_energy_mev(o.rest_mass_kg)));
+        tile(1, 3, "COMPTON L (m)", fmt_sci(quantum::compton_wavelength_m(o.rest_mass_kg)));
+        tile(0, 4, "THERMAL L (m)",
+             fmt_sci(quantum::thermal_de_broglie_m(o.rest_mass_kg, o.temperature)));
+        tile(1, 4, "dp MIN (kg m/s)", fmt_sci(quantum::min_momentum_uncertainty(o.radius_m)));
+    } else {
+        tile(0, 3, "DENSITY (kg/m3)", fmt_sci(dq.density_kg_m3));
+        tile(1, 3, "SCHWARZSCHILD (m)", fmt_sci(dq.schwarzschild_m));
+        tile(0, 4, "ESCAPE V (m/s)", fmt_sci(dq.escape_velocity_ms));
+        tile(1, 4, "COMPACTNESS rs/r", fmt_fixed(dq.compactness, 3));
+    }
 
     float y = grid_y + 5.0f * (tile_h + 6.0f * scale) + 4.0f * scale;
 
-    // Orbital timescales (Kepler III / free-fall), computed from G and the SI
-    // anchors — a one-line readout under the derived tiles.
-    draw_text("t_dyn " + fmt_sci(dq.dynamical_time_s) + " s   -   surface orbit " +
-                  fmt_sci(dq.surface_orbit_s) + " s",
-              {rect.x + 14.0f * scale, y}, 11.5f * scale, with_alpha(WL::CYAN_CORE, 175));
+    if (quantum_scale) {
+        // Quantum-tier one-liner: the reduced Compton wavelength and how far the
+        // object's size sits above the Planck floor (l_P), computed from hbar/c/G.
+        draw_text("reduced C " +
+                      fmt_sci(quantum::reduced_compton_wavelength_m(o.rest_mass_kg)) +
+                      " m   -   radius " + fmt_sci(quantum::in_planck_lengths(o.radius_m)) +
+                      " l_P",
+                  {rect.x + 14.0f * scale, y}, 11.5f * scale, with_alpha(WL::CYAN_CORE, 175));
+    } else {
+        // Orbital timescales (Kepler III / free-fall), computed from G and the SI
+        // anchors — a one-line readout under the derived tiles.
+        draw_text("t_dyn " + fmt_sci(dq.dynamical_time_s) + " s   -   surface orbit " +
+                      fmt_sci(dq.surface_orbit_s) + " s",
+                  {rect.x + 14.0f * scale, y}, 11.5f * scale, with_alpha(WL::CYAN_CORE, 175));
+    }
     y += 20.0f * scale;
 
     // Constituents — what this object is built from (clickable to navigate).

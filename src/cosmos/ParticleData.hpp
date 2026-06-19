@@ -105,6 +105,55 @@ inline std::size_t particle_count() {
 }
 
 // ---------------------------------------------------------------------------
+// Standard Model classification -- pure predicates over the enum / spin.
+// ---------------------------------------------------------------------------
+//
+// The Standard Model splits cleanly: fermions (half-integer spin: quarks +
+// leptons) build matter; bosons (integer spin) carry forces or, for the Higgs,
+// give mass. These predicates let the quantum-tier UI and generator reason about
+// a particle's role without hard-coding indices everywhere.
+
+inline bool is_quark(Particle p) {
+    return p >= Particle::Up && p <= Particle::Top;
+}
+inline bool is_charged_lepton(Particle p) {
+    return p >= Particle::Electron && p <= Particle::Tau;
+}
+inline bool is_neutrino(Particle p) {
+    return p >= Particle::NeutrinoE && p <= Particle::NeutrinoTau;
+}
+inline bool is_lepton(Particle p) {
+    return is_charged_lepton(p) || is_neutrino(p);
+}
+inline bool is_gauge_boson(Particle p) {
+    return p >= Particle::Photon && p <= Particle::ZBoson;
+}
+inline bool is_scalar_boson(Particle p) { return p == Particle::Higgs; }
+
+// Fermion <=> half-integer spin; boson <=> integer spin. Derived from the spin
+// value so the predicate can't disagree with the table.
+inline bool is_fermion(Particle p) {
+    const double s = particle_info(p).spin;
+    const double frac = s - std::floor(s);
+    return std::fabs(frac - 0.5) < 0.25; // 1/2, 3/2, ... -> fermion
+}
+inline bool is_boson(Particle p) { return !is_fermion(p); }
+
+// A particle carries the strong (colour) charge -- and so is confined inside
+// hadrons -- iff it is a quark or a gluon.
+inline bool carries_colour(Particle p) {
+    return is_quark(p) || p == Particle::Gluon;
+}
+
+// Effectively stable on laboratory timescales (no Standard-Model decay channel):
+// the lightest charged lepton, the lightest quarks, the neutrinos, and the
+// massless gauge bosons. Everything heavier in the table decays.
+inline bool is_stable(Particle p) {
+    return p == Particle::Up || p == Particle::Down || p == Particle::Electron ||
+           is_neutrino(p) || p == Particle::Photon || p == Particle::Gluon;
+}
+
+// ---------------------------------------------------------------------------
 // Nuclear binding energy -- semi-empirical mass formula (Bethe-Weizsaecker)
 // ---------------------------------------------------------------------------
 //

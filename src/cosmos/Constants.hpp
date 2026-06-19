@@ -33,6 +33,22 @@ constexpr double planck_mass_kg    = 2.176434e-8;   // kg
 constexpr double planck_energy_J   = 1.956114e9;    // J  (= 1.220910e19 GeV)
 constexpr double planck_temp_K     = 1.416784e32;   // K
 
+// ── Elementary rest masses (SI) ─────────────────────────────────────────────
+// CODATA 2018/2022. The lightest stable matter particles — the rulers of the
+// quantum tier: every Compton wavelength, Bohr radius and binding energy below
+// is set by these three numbers.
+constexpr double electron_mass_kg = 9.1093837015e-31; // m_e
+constexpr double proton_mass_kg   = 1.67262192369e-27; // m_p
+constexpr double neutron_mass_kg  = 1.67492749804e-27; // m_n  (m_n > m_p: free n decays)
+
+// ── Atomic-scale anchors (SI) ───────────────────────────────────────────────
+// Derived from m_e, c and alpha; stored here for the same reason the Planck
+// units are (constexpr can't call std::sqrt in C++17). The quantum verification
+// re-derives them from a_0 = hbar/(m_e c alpha) and Ry = alpha^2 m_e c^2 / 2.
+constexpr double electron_volt_J  = 1.602176634e-19;     // 1 eV (exact; = e)
+constexpr double bohr_radius_m    = 5.29177210903e-11;   // a_0
+constexpr double rydberg_energy_J = 2.1798723611035e-18; // Ry (= 13.605693 eV)
+
 // ── Dimensionless ratios that characterize a universe ───────────────────────
 constexpr double proton_electron_mass_ratio = 1836.152673;
 constexpr double alpha_inv                  = 137.035999;     // 1/alpha
