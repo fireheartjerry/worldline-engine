@@ -15,6 +15,7 @@
 #include "ui/UniverseAtlasScene.hpp"
 
 #include <algorithm>
+#include <memory>
 
 int main() {
     PersistentAppSettings boot_settings = Storage::load_settings();
@@ -25,7 +26,11 @@ int main() {
 
     Renderer renderer(GetScreenWidth(), GetScreenHeight());
     renderer.set_bloom_enabled(boot_settings.gpu_bloom);
-    AppState app;
+    // AppState embeds a Trail<65536> (~1.5 MB) by value, which overflows the
+    // default 1 MB thread stack if placed there. Allocate it on the heap, the
+    // same way SeededUniverseRuntime (which also carries a Trail) is owned.
+    auto app_storage = std::make_unique<AppState>();
+    AppState& app = *app_storage;
     app.settings = boot_settings;
     app.catalog = Storage::load_catalog();
     apply_overlay_preset(app.visuals, OverlayPreset::FULL);
