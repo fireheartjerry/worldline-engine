@@ -3,6 +3,7 @@
 
 #include "app/WorldlineStorage.hpp"
 #include "cosmos/Analysis.hpp"
+#include "cosmos/AtomicGenesis.hpp"
 #include "cosmos/FissionPhysics.hpp"
 #include "cosmos/LatticeQCD.hpp"
 #include "cosmos/NuclearMatter.hpp"
@@ -386,6 +387,32 @@ void draw_inspector(const CosmosState &cosmos, Rectangle rect, float scale) {
                                " MeV   nuc sat " + fmt_fixed(nsmatter::kSatDensity_fm3, 2) +
                                "/fm3   NS max " + fmt_fixed(nsmatter::kMaxMass_Msun, 1) + " Msun";
         draw_text(n3, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
+        y += 20.0f * scale;
+    }
+
+    // Atomic Assembly — synthesize this universe's chemistry from its law genome.
+    // Shown on the atomic tier: how far does the periodic table reach, and can the
+    // elements of life exist?
+    if (cosmos.scale == Scale::ATOMIC) {
+        const atomgen::AtomicUniverse au = atomgen::synthesize(cosmos.genome);
+        draw_text("ATOMIC ASSEMBLY", {rect.x + 14.0f * scale, y}, 11.5f * scale,
+                  with_alpha(WL::XENON_CORE, 205));
+        y += 16.0f * scale;
+        draw_text_block(au.verdict,
+                        {rect.x + 14.0f * scale, y, rect.width - 28.0f * scale, 28.0f * scale},
+                        11.5f * scale, WL::TEXT_SECONDARY, 2.0f * scale);
+        y += 30.0f * scale;
+        const std::string a1 = "1/alpha " + fmt_fixed(1.0 / au.alpha_eff, 1) + "   max Z " +
+                               std::to_string(au.max_stable_Z) + "   Ry " +
+                               fmt_fixed(au.rydberg_ev, 1) + " eV   a0 " +
+                               fmt_fixed(au.bohr_radius_pm, 1) + " pm";
+        const std::string a2 = std::string("CHNOPS ") +
+                               (au.life_elements_available ? "ok" : "BROKEN") + "   elements " +
+                               std::to_string(au.available_element_count) + "   complexity " +
+                               fmt_fixed(au.complexity_score, 2);
+        draw_text(a1, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
+        y += 15.0f * scale;
+        draw_text(a2, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
         y += 20.0f * scale;
     }
 

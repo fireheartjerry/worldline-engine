@@ -179,6 +179,25 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
     saturation point, incompressibility, symmetry energy, the equation of state and
     its pressure, beta-equilibrium neutronisation, and the neutron-star mass-radius
     end-points
+- a comprehensive atomic-physics suite for the third tier (atoms) — same
+  header-only, pure, deterministic, cited idiom, each module test-backed:
+  - `cosmos/AtomicStructure.hpp` — hydrogenic energy levels and Z² scaling, the
+    quantum numbers and orbital degeneracies, orbital radii and electron
+    velocities, the Rydberg formula, and the fine-structure scale
+  - `cosmos/PeriodicTable.hpp` — Aufbau/Madelung electron configurations, valence
+    counting, period/block assignment, noble gases, and the measured periodic
+    trends (ionization energy, atomic radius, electronegativity)
+  - `cosmos/AtomicSpectra.hpp` — the hydrogen spectral series (Lyman/Balmer/…),
+    term symbols, dipole selection rules, the Zeeman effect and Landé g-factor,
+    line broadening, and the Wien/Planck blackbody law
+  - `cosmos/Ionization.hpp` — photoionization thresholds, the Saha ionization
+    equilibrium (the bridge to stellar atmospheres), and plasma collective
+    behaviour (Debye length, plasma frequency)
+  - `cosmos/AtomicGenesis.hpp` — the atomic **generation step**: from the law
+    genome it sets the periodic-table extent (the relativistic Z≈1/α bound), the
+    Rydberg/Bohr energy and size scales, and whether the CHNOPS elements of life
+    can exist — surfaced live in the navigator's inspector as an "ATOMIC ASSEMBLY"
+    readout on the atomic tier
 - a deterministic, lazily-generated, LRU-cached procedural universe you can
   descend into by zooming — galaxy → star system → planet → ecosystem → creature
   — with bounded work and memory (same place always regenerates identically)
