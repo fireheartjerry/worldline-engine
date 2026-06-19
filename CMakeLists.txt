@@ -48,6 +48,7 @@ add_library(worldline_cosmos
     src/cosmos/Analysis.cpp
     src/cosmos/Universe.cpp
     src/cosmos/ObserverFleet.cpp
+    src/cosmos/ProcUniverse.cpp
     src/cosmos/Nav3D.cpp
 )
 target_include_directories(worldline_cosmos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -70,6 +71,7 @@ add_executable(worldline
     src/main.cpp
     src/ui/CosmosExplorerScene.cpp
     src/ui/CosmosExplorerPanels.cpp
+    src/ui/CosmosDescent.cpp
     src/ui/GuidedFirstUniverseScene.cpp
     src/ui/SeedWorkspaceScene.cpp
     src/ui/SeedWorkspacePanels.cpp
@@ -127,6 +129,12 @@ target_include_directories(worldline_cosmos_orbits_tests PRIVATE ${CMAKE_CURRENT
 target_link_libraries(worldline_cosmos_orbits_tests PRIVATE worldline_cosmos)
 worldline_apply_warnings(worldline_cosmos_orbits_tests)
 add_test(NAME cosmos_orbits_verification COMMAND worldline_cosmos_orbits_tests)
+
+add_executable(worldline_cosmos_procgen_tests tests/cosmos_procgen_verification.cpp)
+target_include_directories(worldline_cosmos_procgen_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_procgen_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_procgen_tests)
+add_test(NAME cosmos_procgen_verification COMMAND worldline_cosmos_procgen_tests)
 
 install(TARGETS worldline RUNTIME DESTINATION .)
 install(FILES README.md LICENSE DESTINATION .)

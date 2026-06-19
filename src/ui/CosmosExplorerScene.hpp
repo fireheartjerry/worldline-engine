@@ -5,9 +5,11 @@
 #include "cosmos/LawGenome.hpp"
 #include "cosmos/NBodySystem.hpp"
 #include "cosmos/ObjectCatalog.hpp"
+#include "cosmos/ProcUniverse.hpp"
 #include "cosmos/ScaleLadder.hpp"
 #include "cosmos/Universe.hpp"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -24,6 +26,26 @@ struct CosmosCamera {
     float flash = 0.0f;         // tier-transition highlight, fades to 0
     bool dragging = false;
     bool primed = false;        // whether the stage has been auto-populated once
+};
+
+// Descent navigation: a path from the universe root down to the node currently
+// in focus, driven by the procedural engine. Path entries are COPIES (the
+// engine's node() reference can be invalidated by a later call via LRU eviction).
+struct DescentState {
+    std::unique_ptr<cosmos::ProcUniverse> universe; // root seed = genome.signature
+    std::uint64_t root_seed = 0;                     // for reseed detection
+    std::vector<cosmos::ProcNode> path;              // root .. focus (back() = focus)
+    int hovered_child = -1;                           // index into focus().children
+    CosmosCamera camera;                              // reuse zoom/pan/flash machinery
+    float transition = 0.0f;                          // enter/leave animation envelope
+    int transition_dir = 0;                           // +1 descending, -1 ascending
+    bool initialized = false;
+
+    const cosmos::ProcNode& focus() const { return path.back(); }
+    cosmos::NodeKind focus_kind() const {
+        return path.empty() ? cosmos::NodeKind::Universe : path.back().kind;
+    }
+    int depth() const { return static_cast<int>(path.size()) - 1; } // 0 at universe
 };
 
 // All state for the Cosmos Explorer: the universe's law genome, the object
@@ -49,7 +71,9 @@ struct CosmosState {
     double elapsed = 0.0;
     bool browser_open = false;  // saved-sandbox browser modal
     bool dossier_open = false;  // generation report overlay
-    CosmosCamera camera;        // 2D navigation (zoom/pan + scale traversal)
+    CosmosCamera camera;        // 2D navigation (zoom/pan) for the legacy tier sandbox
+    bool descent_mode = true;   // descend-into-instances navigation (vs legacy tiers)
+    DescentState descent;       // procedural descent navigation state
 
     // Configure (or reconfigure) for a seed: build the genome + specialized
     // catalog. Cheap and deterministic.

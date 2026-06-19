@@ -1,5 +1,6 @@
 #include "ui/CosmosExplorerInternal.hpp"
 #include "ui/CosmosNavigator.hpp"
+#include "ui/CosmosDescent.hpp"
 
 #include "app/WorldlineStorage.hpp"
 #include "cosmos/Analysis.hpp"
@@ -126,83 +127,117 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
     auto control_rect = [&](int i) {
         return Rectangle{controls.x + i * (btn_w + btn_gap), controls.y, btn_w, controls.height};
     };
-    if (draw_button(control_rect(0), cosmos.has_sim ? "Re-spawn" : "Spawn",
-                    {10, 84, 98, 240}, {18, 126, 140, 255}, WL::CYAN_CORE, true, scale)) {
-        cosmos.spawn();
-    }
-    if (draw_button(control_rect(1), cosmos.running ? "Pause" : "Resume",
-                    {18, 40, 36, 235}, {26, 70, 56, 255}, WL::PLASMA_GREEN, cosmos.has_sim, scale)) {
-        cosmos.running = !cosmos.running;
-    }
-    if (draw_button(control_rect(2), "Clear", {26, 30, 48, 228}, {38, 46, 70, 255},
-                    WL::TEXT_PRIMARY, cosmos.has_sim, scale)) {
-        cosmos.clear_sim();
-    }
-    if (draw_button(control_rect(3), "Save", {30, 22, 60, 232}, {46, 32, 92, 255},
-                    WL::VIOLET_CORE, cosmos.has_sim, scale)) {
-        save_current_sandbox(cosmos);
-    }
-    if (draw_button(control_rect(4), "Saved...", {22, 34, 58, 230}, {32, 50, 86, 255},
-                    WL::TEXT_PRIMARY, true, scale)) {
-        cosmos.browser_open = !cosmos.browser_open;
+    if (cosmos.descent_mode) {
+        descent_ensure_init(cosmos);
+        if (draw_button(control_rect(0), "Up", {26, 30, 48, 228}, {38, 46, 70, 255},
+                        WL::TEXT_PRIMARY, cosmos.descent.depth() > 0, scale)) {
+            descent_pop(cosmos);
+        }
+        if (draw_button(control_rect(1), "Root", {26, 30, 48, 228}, {38, 46, 70, 255},
+                        WL::TEXT_PRIMARY, cosmos.descent.depth() > 0, scale)) {
+            descent_jump_to_depth(cosmos, 0);
+        }
+        if (draw_button(control_rect(2), "Tier sandbox", {20, 30, 52, 228}, {30, 46, 78, 255},
+                        WL::CYAN_CORE, true, scale)) {
+            cosmos.descent_mode = false;
+        }
+        if (draw_button(control_rect(4), "Saved...", {22, 34, 58, 230}, {32, 50, 86, 255},
+                        WL::TEXT_PRIMARY, true, scale)) {
+            cosmos.browser_open = !cosmos.browser_open;
+        }
+    } else {
+        if (draw_button(control_rect(0), cosmos.has_sim ? "Re-spawn" : "Spawn",
+                        {10, 84, 98, 240}, {18, 126, 140, 255}, WL::CYAN_CORE, true, scale)) {
+            cosmos.spawn();
+        }
+        if (draw_button(control_rect(1), cosmos.running ? "Pause" : "Resume",
+                        {18, 40, 36, 235}, {26, 70, 56, 255}, WL::PLASMA_GREEN, cosmos.has_sim, scale)) {
+            cosmos.running = !cosmos.running;
+        }
+        if (draw_button(control_rect(2), "Explore", {20, 30, 52, 228}, {30, 46, 78, 255},
+                        WL::CYAN_CORE, true, scale)) {
+            cosmos.descent_mode = true;
+        }
+        if (draw_button(control_rect(3), "Save", {30, 22, 60, 232}, {46, 32, 92, 255},
+                        WL::VIOLET_CORE, cosmos.has_sim, scale)) {
+            save_current_sandbox(cosmos);
+        }
+        if (draw_button(control_rect(4), "Saved...", {22, 34, 58, 230}, {32, 50, 86, 255},
+                        WL::TEXT_PRIMARY, true, scale)) {
+            cosmos.browser_open = !cosmos.browser_open;
+        }
     }
 
     // ── Side columns ─────────────────────────────────────────────────────────
-    draw_ladder(cosmos, ladder, scale);
-
     const float obs_h = 158.0f * scale;
     const Rectangle library = {panel.x, panel.y, panel.width, panel.height - obs_h - 10.0f * scale};
     const Rectangle observables = {panel.x, library.y + library.height + 10.0f * scale, panel.width,
                                    obs_h};
-    draw_inspector(cosmos, library, scale);
-    draw_observables(cosmos, observables, scale);
+    if (cosmos.descent_mode) {
+        draw_descent_breadcrumb(cosmos, ladder, scale);
+        draw_descent_inspector(cosmos, panel, scale);
+    } else {
+        draw_ladder(cosmos, ladder, scale);
+        draw_inspector(cosmos, library, scale);
+        draw_observables(cosmos, observables, scale);
+    }
 
     if (draw_back_to_menu_button(viewport, scale)) {
         result.back_requested = true;
     }
 
-    // ── Stage (the live N-body sandbox) — rendered last ──────────────────────
-    draw_universe_backdrop(cosmos.palette, cosmos.genome.signature, stage,
-                           static_cast<float>(GetTime()));
-
-    const float cx = stage.x + stage.width * 0.5f;
-    const float cy = stage.y + stage.height * 0.5f;
-
-    // Advance the navigation camera (zoom/pan + tier traversal), disabled while a
-    // modal is up so it never fights an overlay.
+    // ── Stage — rendered last (scissor + render-texture passes mustn't clip panels) ──
     const bool nav_interactive = !cosmos.browser_open && !cosmos.dossier_open;
-    update_cosmos_camera(cosmos, stage, GetFrameTime(), nav_interactive);
 
-    const float zoomf = static_cast<float>(cosmos.camera.zoom);
-    std::vector<Renderer::FieldSprite> sprites;
-    sprites.reserve(cosmos.system.bodies.size());
-    for (const Body& b : cosmos.system.bodies) {
-        Renderer::FieldSprite s;
-        s.pos = cosmos_world_to_screen(b.pos, stage, cosmos.camera);
-        s.radius = std::clamp(static_cast<float>(2.5 + b.radius * 3.0) * std::sqrt(zoomf),
-                              1.5f, 26.0f);
-        s.color = to_raylib(b.color);
-        sprites.push_back(s);
-    }
-
-    if (cosmos.has_sim && !cosmos.browser_open && !cosmos.dossier_open) {
-        if (cosmos.running) {
-            renderer.accumulate_field(sprites, stage, 24);
+    if (cosmos.descent_mode) {
+        // Procedural descent: zoom into a specific galaxy -> system -> planet -> life.
+        if (nav_interactive) {
+            update_descent(cosmos, stage, GetFrameTime(), true);
+            draw_descent_stage(cosmos, renderer, stage, scale);
+            draw_descent_hud(cosmos, stage, scale);
+        } else {
+            draw_universe_backdrop(cosmos.palette, cosmos.genome.signature, stage,
+                                   static_cast<float>(GetTime()));
         }
-        renderer.draw_field(sprites, stage);
-        draw_text(std::string(tier_for(cosmos.scale).name) + " sandbox  -  " +
-                      std::to_string(cosmos.system.bodies.size()) + " bodies" +
-                      (cosmos.running ? "  [running]" : "  [paused]"),
-                  {stage.x + 14.0f * scale, stage.y + 12.0f * scale}, 13.0f * scale,
-                  with_alpha(WL::TEXT_SECONDARY, 220));
-        draw_cosmos_scale_hud(cosmos, stage, scale);
     } else {
-        draw_text("Empty stage", {stage.x + 14.0f * scale, stage.y + 12.0f * scale},
-                  13.0f * scale, with_alpha(WL::TEXT_SECONDARY, 200));
-        const char* prompt = "Select a scale, then Spawn to drop this tier's objects into a live sandbox.";
-        draw_text_block(prompt,
-                        {cx - 220.0f * scale, cy - 20.0f * scale, 440.0f * scale, 60.0f * scale},
-                        15.0f * scale, WL::TEXT_TERTIARY, 4.0f * scale);
+        // Legacy 9-tier N-body archetype sandbox.
+        draw_universe_backdrop(cosmos.palette, cosmos.genome.signature, stage,
+                               static_cast<float>(GetTime()));
+        const float cx = stage.x + stage.width * 0.5f;
+        const float cy = stage.y + stage.height * 0.5f;
+        update_cosmos_camera(cosmos, stage, GetFrameTime(), nav_interactive);
+
+        const float zoomf = static_cast<float>(cosmos.camera.zoom);
+        std::vector<Renderer::FieldSprite> sprites;
+        sprites.reserve(cosmos.system.bodies.size());
+        for (const Body& b : cosmos.system.bodies) {
+            Renderer::FieldSprite s;
+            s.pos = cosmos_world_to_screen(b.pos, stage, cosmos.camera);
+            s.radius = std::clamp(static_cast<float>(2.5 + b.radius * 3.0) * std::sqrt(zoomf),
+                                  1.5f, 26.0f);
+            s.color = to_raylib(b.color);
+            sprites.push_back(s);
+        }
+
+        if (cosmos.has_sim && nav_interactive) {
+            if (cosmos.running) {
+                renderer.accumulate_field(sprites, stage, 24);
+            }
+            renderer.draw_field(sprites, stage);
+            draw_text(std::string(tier_for(cosmos.scale).name) + " sandbox  -  " +
+                          std::to_string(cosmos.system.bodies.size()) + " bodies" +
+                          (cosmos.running ? "  [running]" : "  [paused]"),
+                      {stage.x + 14.0f * scale, stage.y + 12.0f * scale}, 13.0f * scale,
+                      with_alpha(WL::TEXT_SECONDARY, 220));
+            draw_cosmos_scale_hud(cosmos, stage, scale);
+        } else {
+            draw_text("Empty stage", {stage.x + 14.0f * scale, stage.y + 12.0f * scale},
+                      13.0f * scale, with_alpha(WL::TEXT_SECONDARY, 200));
+            const char* prompt = "Select a scale, then Spawn to drop this tier's objects into a live sandbox.";
+            draw_text_block(prompt,
+                            {cx - 220.0f * scale, cy - 20.0f * scale, 440.0f * scale, 60.0f * scale},
+                            15.0f * scale, WL::TEXT_TERTIARY, 4.0f * scale);
+        }
     }
     DrawRectangleRoundedLines(stage, 0.02f, 12, 1.4f, with_alpha(WL::GLASS_BORDER, 150));
 
