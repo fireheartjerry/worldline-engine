@@ -13,6 +13,19 @@
 
 class Renderer;
 
+// 2D navigation camera for the sandbox stage: an animated zoom + pan that also
+// flows continuously through the scale ladder (zoom in past a tier -> drop to the
+// next-smaller tier; zoom out past it -> rise to the next-larger one).
+struct CosmosCamera {
+    double zoom = 1.0;          // applied zoom (animated toward target)
+    double target_zoom = 1.0;   // input target
+    Vec2 pan{};                 // applied world-space center offset (animated)
+    Vec2 target_pan{};          // input target
+    float flash = 0.0f;         // tier-transition highlight, fades to 0
+    bool dragging = false;
+    bool primed = false;        // whether the stage has been auto-populated once
+};
+
 // All state for the Cosmos Explorer: the universe's law genome, the object
 // catalog specialized to it, the currently selected scale tier, and a live
 // N-body sandbox. Owned by main() and passed to the scene each frame.
@@ -36,6 +49,7 @@ struct CosmosState {
     double elapsed = 0.0;
     bool browser_open = false;  // saved-sandbox browser modal
     bool dossier_open = false;  // generation report overlay
+    CosmosCamera camera;        // 2D navigation (zoom/pan + scale traversal)
 
     // Configure (or reconfigure) for a seed: build the genome + specialized
     // catalog. Cheap and deterministic.

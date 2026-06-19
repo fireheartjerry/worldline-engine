@@ -1,4 +1,5 @@
 #include "ui/CosmosExplorerInternal.hpp"
+#include "ui/CosmosNavigator.hpp"
 
 #include "app/WorldlineStorage.hpp"
 #include "cosmos/Analysis.hpp"
@@ -195,7 +196,7 @@ void draw_ladder(CosmosState& cosmos, Rectangle rect, float scale) {
                   {row.x + 12.0f * scale, row.y + 24.0f * scale}, 11.5f * scale,
                   with_alpha(WL::TEXT_TERTIARY, 220));
         if (clicked(row)) {
-            cosmos.set_scale(tier.scale);
+            cosmos_jump_to_tier(cosmos, static_cast<int>(i));
         }
     }
 }

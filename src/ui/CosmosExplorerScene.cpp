@@ -1,4 +1,5 @@
 #include "ui/CosmosExplorerInternal.hpp"
+#include "ui/CosmosNavigator.hpp"
 
 #include "app/WorldlineStorage.hpp"
 #include "cosmos/Analysis.hpp"
@@ -166,14 +167,20 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
 
     const float cx = stage.x + stage.width * 0.5f;
     const float cy = stage.y + stage.height * 0.5f;
-    const float sc = std::min(stage.width, stage.height) * 0.5f / static_cast<float>(kWorldHalf);
 
+    // Advance the navigation camera (zoom/pan + tier traversal), disabled while a
+    // modal is up so it never fights an overlay.
+    const bool nav_interactive = !cosmos.browser_open && !cosmos.dossier_open;
+    update_cosmos_camera(cosmos, stage, GetFrameTime(), nav_interactive);
+
+    const float zoomf = static_cast<float>(cosmos.camera.zoom);
     std::vector<Renderer::FieldSprite> sprites;
     sprites.reserve(cosmos.system.bodies.size());
     for (const Body& b : cosmos.system.bodies) {
         Renderer::FieldSprite s;
-        s.pos = {cx + static_cast<float>(b.pos.x) * sc, cy + static_cast<float>(b.pos.y) * sc};
-        s.radius = std::clamp(static_cast<float>(2.5 + b.radius * 3.0), 2.5f, 10.0f);
+        s.pos = cosmos_world_to_screen(b.pos, stage, cosmos.camera);
+        s.radius = std::clamp(static_cast<float>(2.5 + b.radius * 3.0) * std::sqrt(zoomf),
+                              1.5f, 26.0f);
         s.color = to_raylib(b.color);
         sprites.push_back(s);
     }
@@ -188,6 +195,7 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
                       (cosmos.running ? "  [running]" : "  [paused]"),
                   {stage.x + 14.0f * scale, stage.y + 12.0f * scale}, 13.0f * scale,
                   with_alpha(WL::TEXT_SECONDARY, 220));
+        draw_cosmos_scale_hud(cosmos, stage, scale);
     } else {
         draw_text("Empty stage", {stage.x + 14.0f * scale, stage.y + 12.0f * scale},
                   13.0f * scale, with_alpha(WL::TEXT_SECONDARY, 200));
