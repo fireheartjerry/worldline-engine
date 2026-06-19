@@ -41,6 +41,11 @@ struct DescentState {
     int transition_dir = 0;                           // +1 descending, -1 ascending
     bool initialized = false;
 
+    // Live ecosystem (built when entering an Ecosystem node, stepped each frame
+    // so the food web breathes — predators lagging prey).
+    cosmos::eco::Community community;
+    std::uint64_t community_seed = 0;
+
     const cosmos::ProcNode& focus() const { return path.back(); }
     cosmos::NodeKind focus_kind() const {
         return path.empty() ? cosmos::NodeKind::Universe : path.back().kind;

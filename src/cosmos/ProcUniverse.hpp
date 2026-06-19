@@ -14,6 +14,7 @@
 // nodes return identically when revisited, so memory stays bounded with no
 // glitches. This is the reusable engine; per-level richness is layered on top.
 
+#include "cosmos/Ecosystem.hpp"
 #include "cosmos/ObjectCatalog.hpp" // Color8
 
 #include <cstdint>
@@ -80,6 +81,10 @@ struct ProcNode {
 
 // Deterministically derive a child's seed from a parent seed and child index.
 std::uint64_t child_seed(std::uint64_t parent_seed, std::uint64_t index);
+
+// Rebuild the deterministic ecosystem community for an Ecosystem node (its
+// stored climate). Used by the descent view to draw/animate the food web.
+eco::Community community_for_ecosystem(const ProcNode& ecosystem_node);
 
 class ProcUniverse {
 public:

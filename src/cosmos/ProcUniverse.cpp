@@ -428,6 +428,10 @@ void gen_creature(ProcNode& n, Rng& r, const ProcNode* parent) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+eco::Community community_for_ecosystem(const ProcNode& ecosystem_node) {
+    return ecosystem_community(ecosystem_node);
+}
+
 const char* node_kind_name(NodeKind kind) {
     switch (kind) {
     case NodeKind::Universe:   return "Universe";

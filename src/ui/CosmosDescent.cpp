@@ -234,6 +234,16 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
     cam.pan.y += (cam.target_pan.y - cam.pan.y) * k;
     cam.flash = std::max(0.0f, cam.flash - dt * 2.2f);
     d.transition = std::min(1.0f, d.transition + dt * 2.5f);
+
+    // Live ecosystem: build on entry, then step the population dynamics so the
+    // food web breathes (predators lag prey), bounded by self-limitation.
+    if (d.focus_kind() == NodeKind::Ecosystem) {
+        if (d.community_seed != d.focus().seed) {
+            d.community = community_for_ecosystem(d.focus());
+            d.community_seed = d.focus().seed;
+        }
+        eco::step_community(d.community, dt);
+    }
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -264,8 +274,22 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     } else if (f.kind == NodeKind::Planet) {
         DrawCircleGradient(static_cast<int>(center.x), static_cast<int>(center.y),
                            0.42f * sc, palette_color(f.color, 70), Color{0, 0, 0, 0});
+    } else if (f.kind == NodeKind::Ecosystem && d.community_seed == f.seed) {
+        // Food web: faint links from prey up to predator (energy-flow direction).
+        const int ns = static_cast<int>(f.children.size());
+        for (const eco::Link& lk : d.community.links) {
+            if (lk.pred >= ns || lk.prey >= ns) continue;
+            const Vector2 a = child_screen(cosmos, lk.prey, stage, t);
+            const Vector2 b = child_screen(cosmos, lk.pred, stage, t);
+            const Color pc = to_raylib(f.children[static_cast<std::size_t>(lk.pred)].color);
+            DrawLineEx(a, b, 1.0f,
+                       with_alpha(pc, static_cast<unsigned char>(20.0 + 120.0 * lk.pref)));
+        }
     }
     EndScissorMode();
+
+    // Per-species population pulse (live dynamics) for the ecosystem food web.
+    const bool eco_live = (f.kind == NodeKind::Ecosystem && d.community_seed == f.seed);
 
     // Build the bounded sprite set.
     std::vector<Renderer::FieldSprite> sprites;
@@ -291,8 +315,13 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         Renderer::FieldSprite s;
         s.pos = layout_to_screen(nx, ny, stage, cam);
         const float kind_scale = (f.kind == NodeKind::Universe || f.kind == NodeKind::Galaxy) ? 6.0f
-                               : (f.kind == NodeKind::Ecosystem) ? 4.0f : 5.5f;
-        s.radius = std::clamp((2.0f + c.size * kind_scale) * std::sqrt(zoomf), 1.5f, 24.0f);
+                               : (f.kind == NodeKind::Ecosystem) ? 5.0f : 5.5f;
+        float pulse = 1.0f;
+        if (eco_live && i < static_cast<int>(d.community.species.size())) {
+            const eco::Species& sp = d.community.species[static_cast<std::size_t>(i)];
+            pulse = std::clamp(static_cast<float>(std::sqrt(sp.x / std::max(1.0e-9, sp.xeq))), 0.45f, 2.2f);
+        }
+        s.radius = std::clamp((2.0f + c.size * kind_scale) * std::sqrt(zoomf) * pulse, 1.5f, 26.0f);
         Color col = to_raylib(c.color);
         col.a = child_alpha;
         s.color = col;
