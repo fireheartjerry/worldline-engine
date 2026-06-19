@@ -229,6 +229,8 @@ void gen_galaxy(ProcNode& n, Rng& r) {
     const double sigma_kms = 200.0 * std::pow(m_star / 4.0e10, 0.25); // Faber-Jackson-ish
     const double m_bh = cstat::m_sigma_bh_mass(sigma_kms);  // central SMBH, Msun
     const double n_stars_bil = (m_star / 0.3) / 1.0e9;      // ~0.3 Msun mean per star (IMF)
+    n.phys_mass = m_star;
+    n.phys_aux = m_bh;
     add_fact(n, "Morphology", galaxy_morph_name(morph));
     add_fact(n, "Charted systems", std::to_string(count));
     add_fact(n, "Stellar mass", fmt_g(m_star / 1.0e9, 2) + " billion Msun");
@@ -278,6 +280,9 @@ void gen_starsystem(ProcNode& n, Rng& r) {
     const astro::HabitableZone hz = astro::habitable_zone(lum);
     n.subtype = static_cast<int>(sclass);
     n.luminosity = lum;
+    n.phys_mass = mass;             // M_sun
+    n.phys_radius = star.temp_k;    // effective temperature (K) for the HR diagram
+    n.phys_aux = lifetime;          // main-sequence lifetime (Gyr)
 
     const int count = r.irange(2, 8);
     n.descriptor = std::string("A ") + star.name + "-class star (" +
@@ -362,6 +367,9 @@ void gen_planet(ProcNode& n, Rng& r, const ProcNode* parent) {
     n.habitable = gate && (life_roll < 0.55 * star_hab);
 
     const double radius_earth = cstat::planet_radius_earth(mass_earth); // Chen-Kipping
+    n.phys_mass = mass_earth;
+    n.phys_radius = radius_earth;
+    n.phys_aux = planet_axial_tilt(n.seed);
     add_fact(n, "Type", planet_type_name(type));
     add_fact(n, "Orbit", fmt_g(orbit_au, 2) + " AU" + (in_hz ? " (in HZ)" : ""));
     add_fact(n, "Mass", fmt_g(mass_earth, 2) + " Mearth");

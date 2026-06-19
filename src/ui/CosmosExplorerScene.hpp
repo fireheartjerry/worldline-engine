@@ -53,6 +53,7 @@ struct DescentState {
     std::vector<float> child_px;
     std::vector<float> child_py;
     int hover_locked = -1;   // hover hysteresis (prevents flip-flop near ties)
+    bool analysis_open = true; // tier scientific-instrument deck (toggle with G)
 
     const cosmos::ProcNode& focus() const { return path.back(); }
     cosmos::NodeKind focus_kind() const {

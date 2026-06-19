@@ -84,6 +84,11 @@ struct ProcNode {
     double temperature_c = 0.0;  // Planet/Ecosystem: surface temperature
     double precip_mm = 0.0;      // Planet/Ecosystem: precipitation
     bool   habitable = false;    // Planet: hosts life
+
+    // Exact physical quantities for the analysis instruments (you-are-here plots).
+    double phys_mass = 0.0;   // Planet: M_earth; Star: M_sun; Galaxy: M_sun (stellar)
+    double phys_radius = 0.0; // Planet: R_earth; Star: effective temp (K)
+    double phys_aux = 0.0;    // Star: lifetime Gyr; Galaxy: SMBH mass M_sun; Planet: axial tilt
 };
 
 // Deterministically derive a child's seed from a parent seed and child index.
