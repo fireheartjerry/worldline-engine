@@ -4,6 +4,7 @@
 #include "ui/CosmosNavigator.hpp"        // kZoomMin / kZoomMax
 #include "renderer/Renderer.hpp"
 
+#include "cosmos/Astrobio.hpp"
 #include "cosmos/EcoSim.hpp"
 #include "cosmos/SpatialHash.hpp"
 
@@ -363,6 +364,28 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
             }
         }
     } else if (f.kind == NodeKind::StarSystem) {
+        // Map orbital distance (AU) to the normalized ring layout so the habitable
+        // zone and the snow line can be drawn where they physically fall.
+        const double lum = std::max(0.02, f.luminosity);
+        const int cnt = std::max(1, static_cast<int>(f.children.size()));
+        const double base_au = 0.25 * std::sqrt(lum);
+        const double step = 0.80 / cnt;
+        auto au_to_r = [&](double au) {
+            const double i = std::log(std::max(1e-6, au / base_au)) / std::log(1.6);
+            return static_cast<float>((0.18 + i * step) * sc);
+        };
+        const astro::HabitableZone hz = astro::habitable_zone(lum);
+        const float r_in = au_to_r(hz.inner_au), r_out = au_to_r(hz.outer_au);
+        if (r_out > r_in && r_out > 0.0f)
+            DrawRing(center, std::max(0.0f, r_in), r_out, 0.0f, 360.0f, 96,
+                     with_alpha(WL::PLASMA_GREEN, 24));
+        // Snow line (~2.7 AU scaled by sqrt(L)): beyond it, volatiles condense.
+        const float r_snow = au_to_r(2.7 * std::sqrt(lum));
+        DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y), r_snow,
+                        with_alpha(WL::CYAN_DIM, 80));
+        // Stellar corona.
+        DrawCircleGradient(static_cast<int>(center.x), static_cast<int>(center.y),
+                           0.10f * sc + 14.0f, palette_color(f.color, 60), Color{0, 0, 0, 0});
         for (const ChildRef& c : f.children) {
             if (c.orbit > 1.0e-4f) {
                 DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y),
