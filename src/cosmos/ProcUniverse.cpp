@@ -178,9 +178,14 @@ void add_fact(ProcNode& n, const std::string& k, const std::string& v) { n.facts
 void gen_universe(ProcNode& n, Rng& r) {
     const int count = r.irange(16, 30);
     n.descriptor = "A web of " + std::to_string(count) + " galaxies adrift in the dark.";
+    // Grounded in the Planck-2018 LambdaCDM frame (CosmoStats), with small
+    // per-seed variation so each universe is a distinct-but-plausible cosmology.
     add_fact(n, "Galaxies", std::to_string(count));
-    add_fact(n, "Age", std::to_string(r.irange(8, 14)) + ".0 Gyr");
-    add_fact(n, "Expansion", std::to_string(r.irange(60, 75)) + " km/s/Mpc");
+    add_fact(n, "Age", fmt_g(cstat::kAgeGyr + r.range(-0.6, 0.6), 4) + " Gyr");
+    add_fact(n, "Hubble constant", fmt_g(cstat::kH0 + r.range(-4.0, 6.0), 3) + " km/s/Mpc");
+    add_fact(n, "Composition", "5% baryons / 27% dark matter / 68% dark energy");
+    add_fact(n, "CMB temperature", fmt_g(cstat::kTcmb, 4) + " K");
+    add_fact(n, "BAO scale", fmt_g(cstat::kRdragMpc, 4) + " Mpc");
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
         const Identity id = identity_for(NodeKind::Galaxy, cs, language_for(NodeKind::Galaxy, cs, &n));
@@ -341,9 +346,11 @@ void gen_planet(ProcNode& n, Rng& r, const ProcNode* parent) {
     const double life_roll = static_cast<double>(salt(n.seed, 31) % 1000) / 1000.0;
     n.habitable = gate && (life_roll < 0.55 * star_hab);
 
+    const double radius_earth = cstat::planet_radius_earth(mass_earth); // Chen-Kipping
     add_fact(n, "Type", planet_type_name(type));
     add_fact(n, "Orbit", fmt_g(orbit_au, 2) + " AU" + (in_hz ? " (in HZ)" : ""));
     add_fact(n, "Mass", fmt_g(mass_earth, 2) + " Mearth");
+    add_fact(n, "Radius", fmt_g(radius_earth, 2) + " Rearth");
     add_fact(n, "Surface temp", fmt_g(n.temperature_c, 3) + " C");
     add_fact(n, "Life", n.habitable ? "present" : (gate ? "absent (chance)" : "uninhabitable"));
 
