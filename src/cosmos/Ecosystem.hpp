@@ -99,7 +99,10 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome,
                             const phon::Language* lang = nullptr);
 
 // Advance live population dynamics by dt (bounded, damped — never diverges).
-void step_community(Community& community, double dt);
+// `season_factor` modulates producer carrying capacity for seasonal forcing
+// (1.0 = no seasonality); the bounded basin is computed from the unmodulated
+// equilibrium so the sim stays stable for any factor.
+void step_community(Community& community, double dt, double season_factor = 1.0);
 
 // Soft, continuous role label and a hue for a given trophic level.
 const char* role_label(double tau);

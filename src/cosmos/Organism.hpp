@@ -58,7 +58,8 @@ inline double arrhenius(double T_K) {
 inline Organism derive_organism(const eco::SpeciesTraits& t, double T_env_c) {
     using namespace detail;
     const double M = clampd(std::pow(10.0, t.m), 1.0e-9, 1.0e6); // body mass, kg
-    const double T_K = std::max(120.0, t.T_opt + 273.15);
+    // Metabolism responds to the environment temperature the organism experiences.
+    const double T_K = std::max(120.0, T_env_c + 273.15);
 
     Organism o;
     o.mass_asymptotic_kg = M;

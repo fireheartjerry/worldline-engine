@@ -127,6 +127,19 @@ int main() {
         check(all_bounded, "soak: every population stays finite and within [floor, 8*xeq]");
     }
 
+    // --- Seasonal forcing stays bounded (producer carrying capacity oscillates) -
+    {
+        Community c = generate_community(0x5EA50Eull, rainforest());
+        bool bounded = true;
+        for (int step = 0; step < 3000; ++step) {
+            const double season = 1.0 + 0.4 * std::sin(0.05 * step); // breathing K
+            step_community(c, 0.02, season);
+        }
+        for (const Species& s : c.species)
+            if (!std::isfinite(s.x) || s.x <= 0.0 || s.x > 8.0001 * s.xeq) bounded = false;
+        check(bounded, "seasonal forcing keeps populations finite and bounded");
+    }
+
     if (g_failures == 0) {
         std::cout << "cosmos_ecosystem_verification: all checks passed\n";
         return 0;

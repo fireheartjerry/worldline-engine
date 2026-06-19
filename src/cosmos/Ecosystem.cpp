@@ -300,10 +300,11 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome,
     return C;
 }
 
-void step_community(Community& C, double dt) {
+void step_community(Community& C, double dt, double season_factor) {
     const int S = static_cast<int>(C.species.size());
     if (S == 0) return;
     dt = std::min(dt, 0.05);
+    season_factor = std::min(2.0, std::max(0.1, season_factor)); // bounded forcing
     // Reuse the per-community scratch buffer (no per-frame heap allocation).
     if (static_cast<int>(C.dx_scratch.size()) != S) C.dx_scratch.assign(static_cast<std::size_t>(S), 0.0);
     std::vector<double>& dx = C.dx_scratch;
@@ -313,8 +314,9 @@ void step_community(Community& C, double dt) {
         Species& s = C.species[static_cast<std::size_t>(i)];
         const double r = 0.6 * std::pow(std::max(1.0e-6, s.mass_kg), -0.25); // allometric rate
         if (s.t.tau < 0.5) {
-            // Logistic producer: grows toward its equilibrium carrying capacity.
-            dx[static_cast<std::size_t>(i)] += r * s.x * (1.0 - s.x / std::max(1.0e-9, s.xeq));
+            // Logistic producer: grows toward a seasonally-forced carrying capacity.
+            const double K = std::max(1.0e-9, s.xeq * season_factor);
+            dx[static_cast<std::size_t>(i)] += r * s.x * (1.0 - s.x / K);
         } else {
             // Consumer: damped toward equilibrium with self-limitation (stable).
             dx[static_cast<std::size_t>(i)] += r * s.x * (1.0 - s.x / std::max(1.0e-9, s.xeq))
