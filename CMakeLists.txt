@@ -15,6 +15,11 @@ function(worldline_apply_warnings target_name)
 endfunction()
 
 include(FetchContent)
+# raylib 5.0 declares a cmake_minimum_required below 3.5, which CMake 4.x (now on
+# the macOS/Windows CI runners) rejects outright. Raise the policy floor so the
+# fetched dependency still configures on newer toolchains. Harmless on the older
+# CMake (< 3.31) used elsewhere, where the variable is simply ignored.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_Declare(
     raylib
     GIT_REPOSITORY https://github.com/raysan5/raylib.git
