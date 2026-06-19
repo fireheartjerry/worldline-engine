@@ -163,6 +163,22 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
     primordial He/H split, the cosmic abundance pattern and the synthesis sites,
     ending in an anthropic verdict — surfaced live in the navigator's inspector as
     a "NUCLEAR FORGE" readout on the nuclear tier
+  - `cosmos/NuclearStructure.hpp` — collective structure: quadrupole deformation,
+    rotational bands and moments of inertia, vibrational phonons, the rotor/vibrator
+    R₄/₂ signature, and the giant dipole resonance + TRK sum rule
+  - `cosmos/BetaDecayTheory.hpp` — the Fermi theory of beta decay: the Q⁵ phase
+    space, ft / log ft classification, Fermi vs Gamow–Teller selection rules, the
+    Fermi Coulomb function, the Kurie plot, and double beta decay
+  - `cosmos/FissionPhysics.hpp` — asymmetric fragment mass distribution, prompt /
+    delayed neutrons, the ~200 MeV energy partition, the fission barrier, and
+    reactor criticality (four/six-factor formulas, reactivity)
+  - `cosmos/NuclearMoments.hpp` — the nuclear magneton, the Schmidt single-particle
+    magnetic moments, free-nucleon g-factors, quadrupole moments, and Larmor
+    precession (the basis of NMR/MRI)
+  - `cosmos/NuclearMatter.hpp` — bulk nuclear matter and neutron stars: the
+    saturation point, incompressibility, symmetry energy, the equation of state and
+    its pressure, beta-equilibrium neutronisation, and the neutron-star mass-radius
+    end-points
 - a deterministic, lazily-generated, LRU-cached procedural universe you can
   descend into by zooming — galaxy → star system → planet → ecosystem → creature
   — with bounded work and memory (same place always regenerates identically)

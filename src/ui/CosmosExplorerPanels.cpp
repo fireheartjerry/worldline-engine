@@ -3,7 +3,9 @@
 
 #include "app/WorldlineStorage.hpp"
 #include "cosmos/Analysis.hpp"
+#include "cosmos/FissionPhysics.hpp"
 #include "cosmos/LatticeQCD.hpp"
+#include "cosmos/NuclearMatter.hpp"
 #include "cosmos/Nucleosynthesis.hpp"
 #include "cosmos/QuantumGenesis.hpp"
 #include "cosmos/QuantumScale.hpp"
@@ -377,6 +379,13 @@ void draw_inspector(const CosmosState &cosmos, Rectangle rect, float scale) {
         draw_text(n1, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
         y += 15.0f * scale;
         draw_text(n2, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
+        y += 15.0f * scale;
+        // Bulk nuclear matter: fission energy, saturation density, and the
+        // neutron-star (gravity-bound nucleus) maximum mass.
+        const std::string n3 = "fission " + fmt_fixed(fission::u235_energy_partition().total(), 0) +
+                               " MeV   nuc sat " + fmt_fixed(nsmatter::kSatDensity_fm3, 2) +
+                               "/fm3   NS max " + fmt_fixed(nsmatter::kMaxMass_Msun, 1) + " Msun";
+        draw_text(n3, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
         y += 20.0f * scale;
     }
 
