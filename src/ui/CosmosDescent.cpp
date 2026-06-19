@@ -310,7 +310,33 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     BeginScissorMode(static_cast<int>(stage.x), static_cast<int>(stage.y),
                      static_cast<int>(stage.width), static_cast<int>(stage.height));
     const Vector2 center = layout_to_screen(0.0f, 0.0f, stage, cam);
-    if (f.kind == NodeKind::StarSystem) {
+    if (f.kind == NodeKind::Universe) {
+        // Cosmic web: link each galaxy to its two nearest neighbours, tracing the
+        // filaments that thread the clusters (galaxies were placed on the density
+        // field's peaks, so this proximity graph reads as the large-scale web).
+        const int gn = static_cast<int>(d.child_px.size());
+        for (int i = 0; i < gn; ++i) {
+            int b1 = -1, b2 = -1;
+            float d1 = 1e30f, d2 = 1e30f;
+            for (int j = 0; j < gn; ++j) {
+                if (j == i) continue;
+                const float dx = d.child_px[static_cast<std::size_t>(i)] - d.child_px[static_cast<std::size_t>(j)];
+                const float dy = d.child_py[static_cast<std::size_t>(i)] - d.child_py[static_cast<std::size_t>(j)];
+                const float dd = dx * dx + dy * dy;
+                if (dd < d1) { d2 = d1; b2 = b1; d1 = dd; b1 = j; }
+                else if (dd < d2) { d2 = dd; b2 = j; }
+            }
+            const int nb[2] = {b1, b2};
+            for (int b : nb) {
+                if (b <= i) continue; // draw each strand once
+                const float len = std::hypot(d.child_px[static_cast<std::size_t>(i)] - d.child_px[static_cast<std::size_t>(b)],
+                                             d.child_py[static_cast<std::size_t>(i)] - d.child_py[static_cast<std::size_t>(b)]);
+                // Nearer galaxies sit on a denser filament -> brighter strand.
+                const unsigned char a = static_cast<unsigned char>(std::clamp(46.0f - len * 0.06f, 8.0f, 46.0f));
+                DrawLineEx(child_pos(d, i), child_pos(d, b), 1.1f, with_alpha(WL::CYAN_DIM, a));
+            }
+        }
+    } else if (f.kind == NodeKind::StarSystem) {
         for (const ChildRef& c : f.children) {
             if (c.orbit > 1.0e-4f) {
                 DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y),
