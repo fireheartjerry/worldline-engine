@@ -1,5 +1,6 @@
 #pragma once
 #include "raylib.h"
+#include "GpuBloom.hpp"
 #include "SceneLayout.hpp"
 #include "Trail.hpp"
 #include "VectorOverlay.hpp"
@@ -7,16 +8,33 @@
 #include "../ui/CanvasOverlayLayout.hpp"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 class Renderer {
 public:
-    Renderer(int w, int h) { resize_texture(w, h); }
+    Renderer(int w, int h) {
+        resize_texture(w, h);
+        bloom_.load();
+    }
 
-    ~Renderer() {
+    ~Renderer() { release(); }
+
+    // Free all GPU resources. Must be called while the GL context is still
+    // alive (i.e. before CloseWindow); the destructor calls it again, but it is
+    // idempotent so the second call is a no-op.
+    void release() {
         if (has_texture) {
             UnloadRenderTexture(trail_tex);
+            has_texture = false;
         }
+        bloom_.unload();
     }
+
+    // Toggle the GPU bloom post-process. When disabled (or when the shaders
+    // failed to compile) the renderer falls back to the plain CPU trail.
+    void set_bloom_enabled(bool enabled) { bloom_enabled_ = enabled; }
+    bool bloom_enabled() const { return bloom_enabled_; }
+    bool bloom_available() const { return bloom_.ready(); }
 
     void ensure_size(int w, int h) {
         if (w != width || h != height) {
@@ -147,6 +165,13 @@ public:
         const float r1 = bob_radius(params.m1);
         const float r2 = bob_radius(params.m2);
 
+        // Build the GPU glow from the trail texture before the scene draw so the
+        // ping-pong texture passes happen outside the canvas scissor region.
+        const bool use_bloom = bloom_enabled_ && bloom_.ready();
+        if (use_bloom) {
+            bloom_.generate(trail_tex.texture);
+        }
+
         draw_canvas_background(layout);
 
         BeginScissorMode(
@@ -158,6 +183,11 @@ public:
 
         const Rectangle src = {0.0f, 0.0f, static_cast<float>(width), -static_cast<float>(height)};
         DrawTextureRec(trail_tex.texture, src, {0.0f, 0.0f}, ColorAlpha(WHITE, 0.96f));
+        if (use_bloom) {
+            bloom_.composite({0.0f, 0.0f,
+                              static_cast<float>(width),
+                              static_cast<float>(height)});
+        }
 
         draw_grid(layout, simulation.reach());
         draw_connectors(simulation, layout, b1, b2);
@@ -172,11 +202,86 @@ public:
         DrawRectangleRoundedLines(layout.viewport, 0.028f, 20, 2.0f, {70, 104, 120, 180});
     }
 
+    // ── Generic glow-field rendering (used by the Cosmos N-body sandbox) ──────
+    // A point of light in screen space; reused for any particle-like system.
+    struct FieldSprite {
+        Vector2 pos;
+        float radius;
+        Color color;
+    };
+
+    // Fade the trail texture within `viewport` and splat the sprite cores into
+    // it additively, building motion trails frame over frame.
+    void accumulate_field(const std::vector<FieldSprite>& sprites,
+                          Rectangle viewport,
+                          unsigned char fade) {
+        if (!has_texture) {
+            return;
+        }
+        BeginTextureMode(trail_tex);
+        // Fade toward black so the trail texture can be composited additively
+        // over the universe backdrop without washing it out.
+        DrawRectangle(static_cast<int>(viewport.x),
+                      static_cast<int>(viewport.y),
+                      static_cast<int>(viewport.width),
+                      static_cast<int>(viewport.height),
+                      {0, 0, 0, fade});
+        BeginBlendMode(BLEND_ADDITIVE);
+        for (const FieldSprite& s : sprites) {
+            DrawCircleGradient(static_cast<int>(s.pos.x), static_cast<int>(s.pos.y),
+                               s.radius * 1.4f, with_field_alpha(s.color, 150), {0, 0, 0, 0});
+        }
+        EndBlendMode();
+        EndTextureMode();
+    }
+
+    // Composite the accumulated trail (with GPU bloom) and draw the live bodies
+    // on top, clipped to `viewport`.
+    void draw_field(const std::vector<FieldSprite>& sprites, Rectangle viewport) {
+        const bool use_bloom = bloom_enabled_ && bloom_.ready();
+        if (use_bloom) {
+            bloom_.generate(trail_tex.texture);
+        }
+
+        BeginScissorMode(static_cast<int>(viewport.x), static_cast<int>(viewport.y),
+                         static_cast<int>(viewport.width), static_cast<int>(viewport.height));
+
+        // Composite the trail additively so the universe backdrop glows through.
+        const Rectangle src = {0.0f, 0.0f, static_cast<float>(width), -static_cast<float>(height)};
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawTextureRec(trail_tex.texture, src, {0.0f, 0.0f}, ColorAlpha(WHITE, 0.95f));
+        EndBlendMode();
+        if (use_bloom) {
+            bloom_.composite({0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)});
+        }
+
+        BeginBlendMode(BLEND_ADDITIVE);
+        for (const FieldSprite& s : sprites) {
+            DrawCircleGradient(static_cast<int>(s.pos.x), static_cast<int>(s.pos.y),
+                               s.radius * 3.6f, with_field_alpha(s.color, 42), {0, 0, 0, 0});
+        }
+        EndBlendMode();
+        for (const FieldSprite& s : sprites) {
+            Color core = s.color;
+            core.a = 230;
+            DrawCircleGradient(static_cast<int>(s.pos.x), static_cast<int>(s.pos.y),
+                               s.radius, WHITE, core);
+        }
+        EndScissorMode();
+    }
+
 private:
+    static Color with_field_alpha(Color c, unsigned char a) {
+        c.a = a;
+        return c;
+    }
+
     int width = 0;
     int height = 0;
     bool has_texture = false;
     RenderTexture2D trail_tex{};
+    GpuBloom bloom_;
+    bool bloom_enabled_ = true;
 
     void resize_texture(int w, int h) {
         if (has_texture) {
@@ -187,6 +292,7 @@ private:
         trail_tex = LoadRenderTexture(width, height);
         has_texture = true;
         reset_trail();
+        bloom_.resize(width, height);
     }
 
     Color omega_to_color(double omega) const {

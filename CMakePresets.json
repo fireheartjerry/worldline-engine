@@ -9,7 +9,6 @@
     {
       "name": "default",
       "displayName": "Worldline Default",
-      "generator": "MinGW Makefiles",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
@@ -18,7 +17,6 @@
     {
       "name": "release",
       "displayName": "Worldline Release",
-      "generator": "MinGW Makefiles",
       "binaryDir": "${sourceDir}/build-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"

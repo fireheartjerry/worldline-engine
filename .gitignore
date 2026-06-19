@@ -29,3 +29,7 @@ Thumbs.db
 field_preview.bmp
 *.preview.bmp
 live_shot*.png
+
+# Local debug / scratch artifacts
+seed_debug.txt
+tree.txt

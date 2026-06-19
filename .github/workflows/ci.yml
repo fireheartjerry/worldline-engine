@@ -1,4 +1,4 @@
-name: Windows CI
+name: CI
 
 on:
   push:
@@ -6,12 +6,19 @@ on:
       - main
       - master
       - "codex/**"
+      - "claude/**"
   pull_request:
 
 jobs:
-  build-test-package:
+  # NOTE: CI is intentionally scoped to Windows for now. The seeded universe /
+  # N-body sandbox is not yet bit-reproducible across compilers (the seed->genome
+  # pipeline still calls platform libm), so the tier verification diverges on
+  # Linux/GCC and macOS/Clang. Until that determinism work lands, Windows is the
+  # single reference platform; the Linux and macOS jobs were removed deliberately,
+  # not lost.
+  windows:
+    name: Windows (MSVC)
     runs-on: windows-latest
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

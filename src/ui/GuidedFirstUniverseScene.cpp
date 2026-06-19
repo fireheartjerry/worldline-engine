@@ -40,7 +40,7 @@ GuidedFirstUniverseSceneResult draw_guided_first_universe_scene(AppState& app,
     const float left_w = viewport.width * 0.44f;
     const float right_w = viewport.width - left_w - 20.0f * scale;
     const Rectangle intro = {viewport.x + margin, top, left_w - margin, 250.0f * scale};
-    const Rectangle action = {viewport.x + margin, intro.y + intro.height + 18.0f * scale, left_w - margin, 210.0f * scale};
+    const Rectangle action = {viewport.x + margin, intro.y + intro.height + 18.0f * scale, left_w - margin, 264.0f * scale};
     const Rectangle stages = {viewport.x + left_w, top, right_w - margin, 470.0f * scale};
 
     DrawCircleGradient(static_cast<int>(viewport.x + viewport.width * 0.16f),
@@ -144,10 +144,20 @@ GuidedFirstUniverseSceneResult draw_guided_first_universe_scene(AppState& app,
         result.open_reference = true;
     }
 
+    if (draw_button({seed_field.x, button_y + 44.0f * scale, seed_field.width, 36.0f * scale},
+                    "Explore the Cosmos  -  multi-scale universe",
+                    {28, 18, 64, 235},
+                    {44, 28, 96, 255},
+                    WL::VIOLET_CORE,
+                    true,
+                    scale)) {
+        result.open_cosmos = true;
+    }
+
     draw_text_block(
-        "Use Atlas to reopen saved universes. Use the reference system to compare generated motion against the Newtonian baseline.",
-        {action.x + 16.0f * scale, button_y + 44.0f * scale, action.width - 32.0f * scale, 56.0f * scale},
-        13.0f * scale,
+        "Cosmos opens this seed as a library of objects across scales - quarks to galaxies - with a live N-body sandbox.",
+        {action.x + 16.0f * scale, button_y + 86.0f * scale, action.width - 32.0f * scale, 44.0f * scale},
+        12.5f * scale,
         WL::TEXT_TERTIARY,
         3.0f * scale);
 
@@ -179,7 +189,7 @@ GuidedFirstUniverseSceneResult draw_guided_first_universe_scene(AppState& app,
                     guided.reveal_time >= 0.3f);
     draw_stage_card({stages.x + 18.0f * scale, row_y + card_h + card_gap, card_w, card_h},
                     "03 Law Assembly",
-                    "LawSpec assembles the equation of motion, then the field engine advects tens of thousands of test masses through it to reveal the universe's living flow.",
+                    "LawSpec builds the equation of motion and ObservableExtractor maps the generated state into visible pendulum motion.",
                     WL::PLASMA_GREEN,
                     scale,
                     guided.reveal_time >= 0.6f);

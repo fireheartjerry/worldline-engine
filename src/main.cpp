@@ -5,7 +5,7 @@
 #include "app/WorldlineCopy.hpp"
 #include "app/WorldlineStorage.hpp"
 #include "renderer/Renderer.hpp"
-#include "renderer/FieldRenderer.hpp"
+#include "ui/CosmosExplorerScene.hpp"
 #include "ui/GuidedFirstUniverseScene.hpp"
 #include "ui/SeedWorkspaceScene.hpp"
 #include "ui/SettingsModal.hpp"
@@ -24,7 +24,7 @@ int main() {
     init_ui_font();
 
     Renderer renderer(GetScreenWidth(), GetScreenHeight());
-    FieldRenderer field(GetScreenWidth(), GetScreenHeight());
+    renderer.set_bloom_enabled(boot_settings.gpu_bloom);
     AppState app;
     app.settings = boot_settings;
     app.catalog = Storage::load_catalog();
@@ -36,6 +36,7 @@ int main() {
     else if (app.settings.last_screen == "UniverseAtlas") app.ui.screen = AppScreen::UNIVERSE_ATLAS;
     else if (app.settings.last_screen == "ReferenceLab") app.ui.screen = AppScreen::REFERENCE_LAB;
     else if (app.settings.last_screen == "Trace") app.ui.screen = AppScreen::TRACE;
+    else if (app.settings.last_screen == "Cosmos") app.ui.screen = AppScreen::COSMOS_EXPLORER;
     if (!app.settings.last_project_id.empty()) {
         UniverseProject restored_project;
         if (Storage::load_project(app.settings.last_project_id, restored_project)) {
@@ -44,10 +45,10 @@ int main() {
     }
     AppScreen trail_screen = app.ui.screen;
     bool default_trail_needs_upload = true;
+    CosmosState cosmos;
 
     while (!WindowShouldClose()) {
         renderer.ensure_size(GetScreenWidth(), GetScreenHeight());
-        field.ensure_size(GetScreenWidth(), GetScreenHeight());
         if (trail_screen != app.ui.screen) {
             renderer.reset_trail();
             default_trail_needs_upload = (app.ui.screen == AppScreen::REFERENCE_LAB);
@@ -79,9 +80,11 @@ int main() {
         SeedWorkspaceSceneResult workspace_result{};
         UniverseAtlasSceneResult atlas_result{};
         TraceSceneResult trace_result{};
+        CosmosExplorerResult cosmos_result{};
         bool navigate_back = false;
 
         PendulumLayout display_layout{};
+        PendulumLayout seeded_layout{};
         VectorOverlayConfig vector_overlay{};
         const Simulation::VisualDiagnostics* diagnostics = nullptr;
         CanvasOverlayView canvas_overlay{};
@@ -135,17 +138,37 @@ int main() {
             }
             if (app.ui.seeded.runtime != nullptr && app.ui.seeded.runtime->ready()) {
                 SeededUniverseRuntime& runtime = *app.ui.seeded.runtime;
-                runtime.step(GetFrameTime());
-                if (!field.configured_for(runtime.config_token)) {
-                    field.configure(*runtime.law_spec, runtime.config_token, app.ui.seeded.result.seed);
+                const int new_segments = runtime.step(GetFrameTime());
+                seeded_layout = renderer.make_layout(
+                    canvas,
+                    false,
+                    runtime.visual_simulation.rigid_connectors(),
+                    runtime.visual_simulation.bob1_pos(),
+                    runtime.visual_simulation.bob2_pos(),
+                    runtime.visual_simulation.reach());
+                if (runtime.trail_needs_upload) {
+                    if (!runtime.trail.empty()) {
+                        renderer.advance_trail(
+                            runtime.trail,
+                            static_cast<int>(runtime.trail.size()),
+                            seeded_layout,
+                            1);
+                    }
+                    runtime.trail_needs_upload = false;
                 }
-                const bool field_running =
-                    runtime.mode == RunMode::RUNNING && !runtime.scrubbing;
-                field.update(GetFrameTime(), field_running,
-                             runtime.law_state.q, runtime.law_state.v);
+                if (new_segments > 0) {
+                    renderer.advance_trail(runtime.trail,
+                                           new_segments,
+                                           seeded_layout,
+                                           trail_fade_alpha(app.visuals));
+                }
             }
         } else {
             app.ui.drag_handle = 0;
+        }
+
+        if (app.ui.screen == AppScreen::COSMOS_EXPLORER) {
+            step_cosmos(cosmos, GetFrameTime());
         }
 
         BeginDrawing();
@@ -153,28 +176,19 @@ int main() {
         if (app.ui.screen == AppScreen::GUIDED_FIRST_UNIVERSE) {
             guided_result = draw_guided_first_universe_scene(app, canvas);
         } else if (app.ui.screen == AppScreen::SEEDED_WORKSPACE) {
-            FieldReadout readout{};
-            if (app.ui.seeded.runtime != nullptr && app.ui.seeded.runtime->ready()
-                && field.configured_for(app.ui.seeded.runtime->config_token)) {
-                const SeedWorkspaceLayout layout = seed_workspace_layout(canvas);
-                field.draw(layout.stage);
-                const FieldRenderer::Metrics& m = field.metrics();
-                readout.valid = true;
-                readout.exotic_index = m.exotic_index;
-                readout.vorticity = m.vorticity;
-                readout.flux = m.flux;
-                readout.coherence = m.coherence;
-                readout.handedness = m.handedness;
-                readout.particles = field.particle_count();
-                readout.cool = field.palette_cool();
-                readout.hot = field.palette_hot();
-                readout.accent = field.palette_accent();
+            if (app.ui.seeded.runtime != nullptr && app.ui.seeded.runtime->ready()) {
+                renderer.draw_scene(app.ui.seeded.runtime->visual_simulation,
+                                    seeded_layout,
+                                    {},
+                                    nullptr);
             }
-            workspace_result = draw_seed_workspace_scene(app, canvas, readout);
+            workspace_result = draw_seed_workspace_scene(app, canvas);
         } else if (app.ui.screen == AppScreen::UNIVERSE_ATLAS) {
             atlas_result = draw_universe_atlas_scene(app, canvas);
         } else if (app.ui.screen == AppScreen::TRACE) {
             trace_result = draw_trace_scene(app, canvas);
+        } else if (app.ui.screen == AppScreen::COSMOS_EXPLORER) {
+            cosmos_result = draw_cosmos_explorer_scene(app, cosmos, renderer, canvas);
         } else {
             renderer.draw_scene(app.simulation,
                                 display_layout,
@@ -207,6 +221,12 @@ int main() {
             app.ui.settings_open = false;
             app.ui.panel_scroll = 0.0f;
             prepare_toggle_interaction(app);
+        } else if (guided_result.open_cosmos) {
+            app.ui.screen = AppScreen::COSMOS_EXPLORER;
+            app.ui.settings_open = false;
+        } else if (app.ui.screen == AppScreen::COSMOS_EXPLORER && cosmos_result.back_requested) {
+            app.ui.screen = AppScreen::GUIDED_FIRST_UNIVERSE;
+            app.ui.settings_open = false;
         } else if (workspace_result.refresh_catalog || atlas_result.refresh_catalog) {
             app.catalog = Storage::load_catalog();
         } else if (app.ui.screen == AppScreen::SEEDED_WORKSPACE && workspace_result.open_trace) {
@@ -297,11 +317,13 @@ int main() {
         (app.ui.screen == AppScreen::UNIVERSE_ATLAS) ? "UniverseAtlas" :
         (app.ui.screen == AppScreen::REFERENCE_LAB) ? "ReferenceLab" :
         (app.ui.screen == AppScreen::TRACE) ? "Trace" :
+        (app.ui.screen == AppScreen::COSMOS_EXPLORER) ? "Cosmos" :
         "GuidedFirstUniverse";
     app.settings.window_width = GetScreenWidth();
     app.settings.window_height = GetScreenHeight();
     Storage::save_settings(app.settings);
 
+    renderer.release();
     shutdown_ui_font();
     CloseWindow();
     return 0;
