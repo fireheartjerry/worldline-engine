@@ -227,6 +227,12 @@ target_link_libraries(worldline_cosmos_ecosim_tests PRIVATE worldline_cosmos)
 worldline_apply_warnings(worldline_cosmos_ecosim_tests)
 add_test(NAME cosmos_ecosim_verification COMMAND worldline_cosmos_ecosim_tests)
 
+add_executable(worldline_cosmos_cosmography_tests tests/cosmos_cosmography_verification.cpp)
+target_include_directories(worldline_cosmos_cosmography_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_cosmography_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_cosmography_tests)
+add_test(NAME cosmos_cosmography_verification COMMAND worldline_cosmos_cosmography_tests)
+
 install(TARGETS worldline RUNTIME DESTINATION .)
 install(FILES README.md LICENSE DESTINATION .)
 
