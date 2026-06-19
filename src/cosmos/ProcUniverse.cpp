@@ -1,6 +1,7 @@
 #include "cosmos/ProcUniverse.hpp"
 
 #include "cosmos/Astrobio.hpp"
+#include "cosmos/Biogeography.hpp"
 #include "cosmos/CosmoStats.hpp"
 #include "cosmos/Ecosystem.hpp"
 #include "cosmos/Organism.hpp"
@@ -278,6 +279,11 @@ void gen_starsystem(ProcNode& n, Rng& r) {
     }
 }
 
+// Deterministic planetary axial tilt (degrees) — drives latitudinal seasonality.
+double planet_axial_tilt(std::uint64_t seed) {
+    return 2.0 + static_cast<double>(salt(seed, 71) % 430) / 10.0; // ~2..45 deg
+}
+
 // Derive a planet's climate + whether it actually hosts life, from its host
 // star (parent) and its own orbit. Stacked gates leave most worlds barren.
 void gen_planet(ProcNode& n, Rng& r, const ProcNode* parent) {
@@ -333,20 +339,30 @@ void gen_planet(ProcNode& n, Rng& r, const ProcNode* parent) {
         return; // barren: a dead-end (no ecosystems to descend into)
     }
 
-    // Living world: biomes (ecosystems) seeded by climate, count by richness.
-    const int count = 2 + static_cast<int>(astro::richness_factor(
-                          astro::npp_for(astro::biome_for(n.temperature_c, n.precip_mm))) * 5.0 + 0.5);
+    // Living world: ecosystems are real biogeographic REGIONS on a Fibonacci-
+    // lattice surface, each with a latitude-banded climate. The field is a pure
+    // function of the planet, so gen_ecosystem rebuilds it to recover its region.
+    const double npp_planet =
+        astro::npp_for(astro::biome_for(n.temperature_c, n.precip_mm));
+    const double tilt = planet_axial_tilt(n.seed);
+    const biogeo::RegionField rf =
+        biogeo::build_region_field(n.seed, n.temperature_c, n.precip_mm, tilt, npp_planet);
+    const int count = rf.n;
     n.descriptor = std::string("A living ") + planet_type_name(type) + " world with " +
-                   std::to_string(count) + " biomes.";
+                   std::to_string(count) + " biogeographic regions (axial tilt " +
+                   fmt_g(tilt, 2) + " deg).";
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
         const Identity id = identity_for(NodeKind::Ecosystem, cs, language_for(NodeKind::Ecosystem, cs, &n));
-        const double ang = (static_cast<double>(i) / count) * kTau + r.range(-0.2, 0.2);
-        const double rad = r.range(0.45, 0.9);
+        const biogeo::Region& reg = rf.region[static_cast<std::size_t>(i)];
         ChildRef c;
         c.seed = cs; c.kind = NodeKind::Ecosystem;
+        c.subtype = i; // region index (gen_ecosystem rebuilds the field to recover climate)
+        // Lay regions on the planet disc by their longitude/latitude.
+        const double rad = 0.30 + 0.55 * std::cos(reg.lat_deg * kTau / 360.0);
+        const double ang = reg.lon_deg * kTau / 360.0;
         c.x = static_cast<float>(std::cos(ang) * rad);
-        c.y = static_cast<float>(std::sin(ang) * rad);
+        c.y = static_cast<float>(-reg.lat_deg / 110.0);
         c.size = id.size; c.color = id.color; c.name = id.name;
         n.children.push_back(std::move(c));
     }
@@ -376,11 +392,27 @@ eco::Community ecosystem_community(const ProcNode& eco_node) {
 }
 
 void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent, const ProcUniverse* self) {
-    // Biome from the planet's climate, perturbed per-ecosystem (latitude band).
+    (void)r; // climate is now region-derived (deterministic), not RNG-perturbed
+    // Climate from this ecosystem's biogeographic REGION: rebuild the planet's
+    // region field (pure fn of the planet) and recover our region by index, so a
+    // pole biome is genuinely cold and an equatorial one warm.
     double temp = 18.0, precip = 1200.0;
     if (parent != nullptr && parent->kind == NodeKind::Planet) {
-        temp = parent->temperature_c + r.range(-12.0, 12.0);
-        precip = std::max(0.0, parent->precip_mm * r.range(0.5, 1.4));
+        const double npp_planet =
+            astro::npp_for(astro::biome_for(parent->temperature_c, parent->precip_mm));
+        const biogeo::RegionField rf = biogeo::build_region_field(
+            parent->seed, parent->temperature_c, parent->precip_mm,
+            planet_axial_tilt(parent->seed), npp_planet);
+        int idx = -1;
+        for (std::size_t k = 0; k < parent->children.size(); ++k)
+            if (parent->children[k].seed == n.seed) { idx = static_cast<int>(k); break; }
+        if (idx >= 0 && idx < rf.n) {
+            temp = rf.region[static_cast<std::size_t>(idx)].temp_c;
+            precip = rf.region[static_cast<std::size_t>(idx)].precip_mm;
+        } else {
+            temp = parent->temperature_c;
+            precip = parent->precip_mm;
+        }
     }
     const astro::Biome biome = astro::biome_for(temp, precip);
     n.subtype = static_cast<int>(biome);
