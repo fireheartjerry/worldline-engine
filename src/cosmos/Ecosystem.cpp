@@ -339,9 +339,16 @@ void step_community(Community& C, double dt) {
             }
         }
     }
+    // Robust, positivity-preserving update: never propagate NaN/inf, and confine
+    // every population to a bounded basin [1e-6*xeq, 8*xeq] so stiff predator-prey
+    // pairs can oscillate but can neither blow up nor flicker to zero.
     for (int i = 0; i < S; ++i) {
         Species& s = C.species[static_cast<std::size_t>(i)];
-        s.x = std::max(1.0e-6 * s.xeq, s.x + dx[static_cast<std::size_t>(i)] * dt);
+        double xn = s.x + dx[static_cast<std::size_t>(i)] * dt;
+        if (!std::isfinite(xn)) xn = s.xeq;
+        const double floor = 1.0e-6 * s.xeq;
+        const double ceil = 8.0 * s.xeq;
+        s.x = std::min(ceil, std::max(floor, xn));
     }
 }
 

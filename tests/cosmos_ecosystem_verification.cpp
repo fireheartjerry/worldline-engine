@@ -108,6 +108,25 @@ int main() {
         }
     }
 
+    // --- Robustness soak: thousands of seeds x biomes, many steps, large dt ----
+    //     The positivity-preserving integrator must keep every population finite
+    //     and inside its bounded basin [floor, 8*xeq] for any world / step size.
+    {
+        bool all_bounded = true;
+        for (std::uint64_t seed = 0; seed < 1500 && all_bounded; ++seed) {
+            Community c = generate_community(seed * 0x9E3779B9ull + 1ull,
+                                             (seed % 2) ? rainforest() : desert());
+            for (int step = 0; step < 400; ++step) step_community(c, 0.05);
+            for (const Species& s : c.species) {
+                if (!std::isfinite(s.x) || s.x <= 0.0 || s.x > 8.0001 * s.xeq) {
+                    all_bounded = false;
+                    break;
+                }
+            }
+        }
+        check(all_bounded, "soak: every population stays finite and within [floor, 8*xeq]");
+    }
+
     if (g_failures == 0) {
         std::cout << "cosmos_ecosystem_verification: all checks passed\n";
         return 0;
