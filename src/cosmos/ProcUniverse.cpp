@@ -1,6 +1,7 @@
 #include "cosmos/ProcUniverse.hpp"
 
 #include "cosmos/Astrobio.hpp"
+#include "cosmos/CosmoStats.hpp"
 #include "cosmos/Ecosystem.hpp"
 #include "cosmos/Organism.hpp"
 #include "cosmos/Phonology.hpp"
@@ -229,21 +230,27 @@ void gen_galaxy(ProcNode& n, Rng& r) {
 }
 
 void gen_starsystem(ProcNode& n, Rng& r) {
-    const astro::StarClass sclass = star_class_for(n.seed);
+    const astro::StarClass sclass = star_class_for(n.seed); // IMF-weighted class (M-dominant)
     const astro::StarInfo& star = astro::star_info(sclass);
-    const double lum = astro::star_luminosity(star.mass_sun);
+    // Continuous stellar mass jittered within the class band, then luminosity and
+    // main-sequence lifetime from the grounded mass-luminosity law (CosmoStats),
+    // so every star is a unique point on the main sequence rather than a fixed
+    // class representative.
+    const double mass = std::max(0.08, star.mass_sun * r.range(0.82, 1.22));
+    const double lum = cstat::stellar_luminosity(mass);
+    const double lifetime = cstat::stellar_lifetime_gyr(mass);
     const astro::HabitableZone hz = astro::habitable_zone(lum);
     n.subtype = static_cast<int>(sclass);
     n.luminosity = lum;
 
     const int count = r.irange(2, 8);
     n.descriptor = std::string("A ") + star.name + "-class star (" +
-                   fmt_g(star.lifetime_gyr, 2) + " Gyr lifetime) with " +
+                   fmt_g(lifetime, 2) + " Gyr lifetime) with " +
                    std::to_string(count) + " planets.";
     add_fact(n, "Star class", std::string(star.name) + " (" + fmt_g(star.temp_k, 4) + " K)");
-    add_fact(n, "Mass", fmt_g(star.mass_sun, 2) + " Msun");
-    add_fact(n, "Luminosity", fmt_g(lum, 2) + " Lsun");
-    add_fact(n, "Lifetime", fmt_g(star.lifetime_gyr, 2) + " Gyr");
+    add_fact(n, "Mass", fmt_g(mass, 2) + " Msun");
+    add_fact(n, "Luminosity", fmt_g(lum, 3) + " Lsun");
+    add_fact(n, "Lifetime", fmt_g(lifetime, 2) + " Gyr");
     add_fact(n, "Habitable zone", fmt_g(hz.inner_au, 2) + "-" + fmt_g(hz.outer_au, 2) + " AU");
     add_fact(n, "Planets", std::to_string(count));
 
