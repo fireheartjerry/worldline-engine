@@ -62,7 +62,10 @@ public:
     Vec2 total_momentum() const;
     Vec2 center_of_mass() const;
     double angular_momentum() const; // total L about the origin (rotation signature)
-    double virial_ratio() const;     // 2*KE / |PE|; ~1 indicates a relaxed bound system
+    double virial_ratio() const;     // 2*KE / |PE|; for an inverse-square bound
+                                     // system in equilibrium this tends to ~1
+                                     // (the sandbox mixes several potentials, so
+                                     // read it as a relative relaxation indicator)
     int bound_pair_count() const;    // pairs with negative total two-body energy
     double rms_radius() const;       // spread about the center of mass
     double max_radius() const;       // farthest body from the center of mass

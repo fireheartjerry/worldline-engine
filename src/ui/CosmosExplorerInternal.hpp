@@ -7,7 +7,7 @@
 #include "ui/CosmosExplorerScene.hpp"
 #include "ui/UiPrimitives.hpp"
 #include "app/UniverseModel.hpp"
-#include "cosmos/Constants.hpp"
+#include "cosmos/Orbits.hpp"
 #include "cosmos/ObjectCatalog.hpp"
 
 #include <cstdint>

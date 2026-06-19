@@ -287,6 +287,13 @@ void draw_inspector(const CosmosState& cosmos, Rectangle rect, float scale) {
 
     float y = grid_y + 5.0f * (tile_h + 6.0f * scale) + 4.0f * scale;
 
+    // Orbital timescales (Kepler III / free-fall), computed from G and the SI
+    // anchors — a one-line readout under the derived tiles.
+    draw_text("t_dyn " + fmt_sci(dq.dynamical_time_s) + " s   -   surface orbit " +
+                  fmt_sci(dq.surface_orbit_s) + " s",
+              {rect.x + 14.0f * scale, y}, 11.5f * scale, with_alpha(WL::CYAN_CORE, 175));
+    y += 20.0f * scale;
+
     // Constituents — what this object is built from (clickable to navigate).
     const auto parts = resolve_constituents(cosmos.catalog, o);
     if (!parts.empty()) {
