@@ -90,6 +90,12 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
 - reference Newtonian pendulum workspace for comparison
 - multi-scale Cosmos Explorer with a scale ladder, object catalog, and live
   N-body sandbox with per-tier physics derived from the law genome
+- a 124-object catalogue spanning nine tiers, from Planck-scale quanta and the
+  full particle zoo through the periodic table, organics, planets, exotic stars
+  and the complete black-hole family (intermediate / supermassive / primordial)
+  plus a wormhole, up to galaxies and the cosmic web and its voids
+- real SI anchors that drive computed physics in the inspector — density,
+  Schwarzschild radius, escape velocity, and compactness derived from `G` and `c`
 - universe classification with granular signature metrics and an observer fleet
 - 3D navigation boilerplate for future free-flight exploration
 - cohesive glassmorphic, sci-fi HUD interface shared across every screen
