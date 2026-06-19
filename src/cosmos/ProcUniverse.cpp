@@ -3,6 +3,7 @@
 #include "cosmos/Astrobio.hpp"
 #include "cosmos/Biogeography.hpp"
 #include "cosmos/CosmoStats.hpp"
+#include "cosmos/Demography.hpp"
 #include "cosmos/Ecosystem.hpp"
 #include "cosmos/Organism.hpp"
 #include "cosmos/Phonology.hpp"
@@ -492,6 +493,14 @@ void gen_creature(ProcNode& n, Rng& r, const ProcNode* parent, const ProcUnivers
                          ? fmt_g(org.home_range_m2 / 1.0e6, 2) + " km^2"
                          : fmt_g(org.home_range_m2, 2) + " m^2");
             add_fact(n, "Population", fmt_g(s.population, 2));
+            // Age/size structure from the Lefkovitch demography model.
+            const demo::StageModel sm = demo::stage_model(s.t, org);
+            add_fact(n, "Age structure", fmt_g(100.0 * sm.stable[0], 2) + "% juv / " +
+                                          fmt_g(100.0 * sm.stable[1], 2) + "% sub / " +
+                                          fmt_g(100.0 * sm.stable[2], 2) + "% adult");
+            add_fact(n, "Survivorship", sm.survivorship > 2.3 ? "Type III (many young, high loss)"
+                                       : (sm.survivorship < 1.5 ? "Type I (few young, long-lived)"
+                                                                : "Type II"));
             add_fact(n, "Thermal optimum", fmt_g(s.t.T_opt, 3) + " C");
             add_fact(n, "Activity", s.t.phi < 0.25 || s.t.phi > 0.75 ? "diurnal" : "nocturnal");
             add_fact(n, "Strategy", s.t.rho > 0.6 ? "r (fast, many young)"
