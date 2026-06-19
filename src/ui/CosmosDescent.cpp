@@ -318,9 +318,34 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
             }
         }
     } else if (f.kind == NodeKind::Planet) {
+        // The world as a soft globe with latitude guide lines (regions sit by
+        // latitude/longitude); the equator reads brightest.
         DrawCircleGradient(static_cast<int>(center.x), static_cast<int>(center.y),
-                           0.42f * sc, palette_color(f.color, 70), Color{0, 0, 0, 0});
+                           0.46f * sc, palette_color(f.color, 60), Color{0, 0, 0, 0});
+        DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y), 0.46f * sc,
+                        with_alpha(WL::GLASS_BORDER, 70));
+        const int latv[5] = {60, 30, 0, -30, -60};
+        for (int i = 0; i < 5; ++i) {
+            const float ny = -static_cast<float>(latv[i]) / 110.0f;
+            const Vector2 p = layout_to_screen(0.0f, ny, stage, cam);
+            const float halfw = 0.46f * sc * std::cos(static_cast<float>(latv[i]) * 3.14159f / 180.0f);
+            const unsigned char a = (latv[i] == 0) ? 90 : 36;
+            DrawLineEx({center.x - halfw, p.y}, {center.x + halfw, p.y}, 1.0f,
+                       with_alpha(WL::CYAN_DIM, a));
+        }
     } else if (eco_live) {
+        // Trophic strata guides: producers low -> apex high, so the vertical food
+        // web reads as an energy pyramid. Labels sit at the left margin.
+        const char* tl[5] = {"APEX", "CARNIVORES", "OMNIVORES", "HERBIVORES", "PRODUCERS"};
+        const float ny5[5] = {-0.82f, -0.41f, 0.0f, 0.41f, 0.82f};
+        for (int i = 0; i < 5; ++i) {
+            const Vector2 p = layout_to_screen(0.0f, ny5[i], stage, cam);
+            if (p.y < stage.y + 4.0f || p.y > stage.y + stage.height - 4.0f) continue;
+            DrawLineEx({stage.x + 6.0f, p.y}, {stage.x + stage.width - 6.0f, p.y}, 1.0f,
+                       with_alpha(WL::GLASS_BORDER, 30));
+            draw_text(tl[i], {stage.x + 10.0f, p.y - 12.0f * ui}, 9.0f * ui,
+                      with_alpha(WL::TEXT_TERTIARY, 110));
+        }
         // Food web: links from prey up to predator (energy-flow direction), with a
         // soft glow and a brightness that pulses with the live predation flux.
         const int ns = static_cast<int>(d.child_px.size());
@@ -394,6 +419,25 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
                             with_alpha(WL::PLASMA_GREEN, 90));
         }
         EndScissorMode();
+    }
+
+    // Instrument frame: engineered corner brackets + a slow vertical scan sweep.
+    draw_corner_brackets(stage, with_alpha(WL::CYAN_DIM, 120), 18.0f * ui, 1.4f, 3.0f);
+    {
+        const float sweep = stage.y + (0.5f + 0.5f * std::sin(t * 0.35f)) * stage.height;
+        DrawLineEx({stage.x + 4.0f, sweep}, {stage.x + stage.width - 4.0f, sweep}, 1.0f,
+                   with_alpha(WL::CYAN_CORE, 16));
+    }
+
+    // Live-simulation badge for an active ecosystem.
+    if (eco_live) {
+        const float pa = 0.5f + 0.5f * std::sin(t * 3.0f);
+        const Rectangle lb = {stage.x + stage.width - 78.0f * ui, stage.y + 12.0f * ui,
+                              66.0f * ui, 20.0f * ui};
+        draw_glass_panel(lb, {8, 22, 16, 210}, with_alpha(WL::PLASMA_GREEN, 120), 0.4f, 2);
+        DrawCircleV({lb.x + 12.0f * ui, lb.y + lb.height * 0.5f}, 4.0f * ui,
+                    with_alpha(WL::PLASMA_GREEN, static_cast<unsigned char>(140 + 115 * pa)));
+        draw_text("LIVE", {lb.x + 22.0f * ui, lb.y + 4.0f * ui}, 11.0f * ui, WL::PLASMA_GREEN);
     }
 
     // Boundary flash ring.
