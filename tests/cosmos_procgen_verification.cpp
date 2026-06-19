@@ -197,6 +197,50 @@ int main() {
         require(!nodes_equal(r7, r8), "reseed must change the universe");
     }
 
+    // --- Deepened-engine coherence: community memo-cache is a pure memo, a living
+    //     planet spans multiple biomes (biogeographic regions), and creature facts
+    //     are identical whether read via the cache or a fresh community ----------
+    {
+        ProcUniverse uni(0xBADC0FFEEull & 0xFFFFFFFFull);
+        const ProcNode universe = uni.root();
+        bool checked = false;
+        for (const ChildRef& gref : universe.children) {
+            if (checked) break;
+            const ProcNode galaxy = uni.node(gref.seed, gref.kind, &universe);
+            for (std::size_t s = 0; s < galaxy.children.size() && s < 14 && !checked; ++s) {
+                const ProcNode sys = uni.node(galaxy.children[s].seed, galaxy.children[s].kind, &galaxy);
+                for (const ChildRef& pr : sys.children) {
+                    const ProcNode planet = uni.node(pr.seed, pr.kind, &sys);
+                    if (!planet.habitable || planet.children.size() < 2) continue;
+
+                    // Regions span climate: at least two distinct biomes on a world.
+                    int b0 = -1; bool diverse = false;
+                    for (const ChildRef& er : planet.children) {
+                        const ProcNode eco = uni.node(er.seed, er.kind, &planet);
+                        if (b0 < 0) b0 = eco.subtype;
+                        else if (eco.subtype != b0) diverse = true;
+                    }
+                    require(diverse, "a living planet spans more than one biome (regions)");
+
+                    // Cache coherence: a creature's name (via the node cache) matches
+                    // the species name from a freshly-rebuilt community.
+                    const ProcNode eco = uni.node(planet.children.front().seed,
+                                                  planet.children.front().kind, &planet);
+                    require(!eco.children.empty(), "ecosystem has creatures");
+                    const ProcNode creature = uni.node(eco.children.front().seed,
+                                                       eco.children.front().kind, &eco);
+                    const cosmos::eco::Community fresh = community_for_ecosystem(eco);
+                    require(!fresh.species.empty(), "fresh community has species");
+                    require(creature.name == fresh.species.front().name,
+                            "creature name matches fresh-community species (cache coherent)");
+                    checked = true;
+                    break;
+                }
+            }
+        }
+        require(checked, "found a living, multi-region world to verify coherence");
+    }
+
     // --- Lineage-coherent naming: a child's language drifts from its parent's,
     //     so it is closer in style space to its parent than to an unrelated node,
     //     and siblings are closer to each other than to a foreign family --------
