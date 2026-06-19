@@ -421,6 +421,38 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         EndScissorMode();
     }
 
+    // Creature specimen viewer: concentric reticle rings + crosshair around the
+    // single organism, so the leaf reads as a specimen under examination.
+    if (f.kind == NodeKind::Creature) {
+        const float rr = 34.0f * ui + 10.0f * ui * (0.5f + 0.5f * std::sin(t * 1.5f));
+        DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y), rr,
+                        with_alpha(WL::CYAN_DIM, 90));
+        DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y), rr + 8.0f * ui,
+                        with_alpha(WL::CYAN_DIM, 40));
+        DrawLineEx({center.x - rr - 10.0f * ui, center.y}, {center.x - rr + 4.0f * ui, center.y},
+                   1.2f, with_alpha(WL::CYAN_CORE, 150));
+        DrawLineEx({center.x + rr - 4.0f * ui, center.y}, {center.x + rr + 10.0f * ui, center.y},
+                   1.2f, with_alpha(WL::CYAN_CORE, 150));
+        DrawLineEx({center.x, center.y - rr - 10.0f * ui}, {center.x, center.y - rr + 4.0f * ui},
+                   1.2f, with_alpha(WL::CYAN_CORE, 150));
+        DrawLineEx({center.x, center.y + rr - 4.0f * ui}, {center.x, center.y + rr + 10.0f * ui},
+                   1.2f, with_alpha(WL::CYAN_CORE, 150));
+        draw_text("SPECIMEN", {center.x - 26.0f * ui, center.y + rr + 14.0f * ui}, 9.5f * ui,
+                  with_alpha(WL::TEXT_TERTIARY, 170));
+    }
+
+    // Ecosystem trophic-role colour legend (bottom-left of the stage).
+    if (eco_live) {
+        const char* rl[3] = {"producer", "herbivore", "carnivore"};
+        const Color rc[3] = {WL::PLASMA_GREEN, WL::CYAN_CORE, {255, 92, 92, 255}};
+        const float ly = stage.y + stage.height - 22.0f * ui;
+        for (int i = 0; i < 3; ++i) {
+            const float lx = stage.x + 14.0f * ui + i * 92.0f * ui;
+            DrawCircleV({lx, ly + 5.0f * ui}, 4.0f * ui, with_alpha(rc[i], 220));
+            draw_text(rl[i], {lx + 9.0f * ui, ly}, 9.5f * ui, with_alpha(WL::TEXT_TERTIARY, 200));
+        }
+    }
+
     // Instrument frame: engineered corner brackets + a slow vertical scan sweep.
     draw_corner_brackets(stage, with_alpha(WL::CYAN_DIM, 120), 18.0f * ui, 1.4f, 3.0f);
     {
