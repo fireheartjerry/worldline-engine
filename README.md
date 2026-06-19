@@ -138,6 +138,31 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
     timeline) and returns an anthropic verdict on whether complex matter can form
     — surfaced live in the inspector alongside per-object rest energy, Compton
     wavelength and size in Planck lengths
+- an ultra-advanced nuclear-physics suite for the second tier (protons, neutrons,
+  nuclei) — same header-only, pure, deterministic, cited (PDG / textbook) idiom,
+  each module test-backed:
+  - `cosmos/NuclearData.hpp` — nuclear radius/density, the extended SEMF (liquid
+    drop + pairing + Wigner), binding & separation energies, mass excess, the
+    valley of beta stability, and the neutron/proton drip lines
+  - `cosmos/NuclearShell.hpp` — the shell model: magic numbers (2,8,20,28,50,82,126),
+    the spin-orbit level ordering, ground-state spin-parity, doubly-magic nuclei,
+    and the pairing gap
+  - `cosmos/NuclearDecay.hpp` — the decay law and every mode: alpha (Gamow +
+    Geiger–Nuttall), beta∓/EC (Q-values, Sargent's Q⁵ rule), gamma (Weisskopf
+    single-particle rates), and decay-mode prediction from the energetics
+  - `cosmos/DecayChains.hpp` — the Bateman solution, secular/transient
+    equilibrium, the four natural series (4n … 4n+3), and α/β step counts
+  - `cosmos/NuclearReactions.hpp` — reaction/fusion Q-values, the Coulomb barrier,
+    the Gamow peak & astrophysical S-factor, and fission (fissility Z²/A, barrier,
+    ~200 MeV release)
+  - `cosmos/StellarBurning.hpp` — the pp-chain and CNO cycle, triple-alpha, and
+    the ordered advanced burning stages (C, Ne, O, Si) up to the iron peak
+  - `cosmos/Nucleosynthesis.hpp` — the nuclear **generation step**: from the law
+    genome it forges the iron peak, the s-/r-process abundance peaks pinned to the
+    neutron magic numbers, the fission limit that caps the periodic table, the
+    primordial He/H split, the cosmic abundance pattern and the synthesis sites,
+    ending in an anthropic verdict — surfaced live in the navigator's inspector as
+    a "NUCLEAR FORGE" readout on the nuclear tier
 - a deterministic, lazily-generated, LRU-cached procedural universe you can
   descend into by zooming — galaxy → star system → planet → ecosystem → creature
   — with bounded work and memory (same place always regenerates identically)

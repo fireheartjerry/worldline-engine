@@ -4,6 +4,7 @@
 #include "app/WorldlineStorage.hpp"
 #include "cosmos/Analysis.hpp"
 #include "cosmos/LatticeQCD.hpp"
+#include "cosmos/Nucleosynthesis.hpp"
 #include "cosmos/QuantumGenesis.hpp"
 #include "cosmos/QuantumScale.hpp"
 #include "cosmos/Sandbox.hpp"
@@ -350,6 +351,32 @@ void draw_inspector(const CosmosState &cosmos, Rectangle rect, float scale) {
         const std::string l3 = "QCD string " + fmt_fixed(sigma, 2) + " GeV2   Bell max " +
                                fmt_fixed(spin::kTsirelsonBound, 2) + " (> 2 classical)";
         draw_text(l3, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
+        y += 20.0f * scale;
+    }
+
+    // Nuclear Forge — synthesize this universe's element-building from its law
+    // genome. Shown on the nuclear tier: can this physics forge the elements?
+    if (cosmos.scale == Scale::NUCLEAR) {
+        const nucleosynth::NuclearUniverse nu = nucleosynth::synthesize(cosmos.genome);
+        draw_text("NUCLEAR FORGE", {rect.x + 14.0f * scale, y}, 11.5f * scale,
+                  with_alpha(WL::XENON_CORE, 205));
+        y += 16.0f * scale;
+        draw_text_block(nu.verdict,
+                        {rect.x + 14.0f * scale, y, rect.width - 28.0f * scale, 28.0f * scale},
+                        11.5f * scale, WL::TEXT_SECONDARY, 2.0f * scale);
+        y += 30.0f * scale;
+        const std::string n1 = "iron peak A" + std::to_string(nu.iron_peak_A) + " (" +
+                               fmt_fixed(nu.max_binding_per_nucleon, 2) +
+                               " MeV/nucleon)   carbon " +
+                               (nu.carbon_resonance_ok ? "ok" : "DETUNED");
+        const std::string n2 = "s-peaks A" + std::to_string(nu.s_process[0].mass_number_A) + "/" +
+                               std::to_string(nu.s_process[1].mass_number_A) + "/" +
+                               std::to_string(nu.s_process[2].mass_number_A) + "   fission@A" +
+                               std::to_string(nu.fission_limit_A) + "   cx " +
+                               fmt_fixed(nu.complexity_score, 2);
+        draw_text(n1, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
+        y += 15.0f * scale;
+        draw_text(n2, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
         y += 20.0f * scale;
     }
 
