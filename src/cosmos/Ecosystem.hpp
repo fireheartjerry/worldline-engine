@@ -74,6 +74,11 @@ struct CommunityStats {
     double stability_margin = 0.0;  // 1 - sigma*sqrt(S*C); >0 stable
     double total_biomass = 0.0;     // kg/m^2
     int    keystone = -1;           // species with the largest removal impact
+    // Multi-interaction structure + nutrient pools (signed community matrix).
+    int    n_competition = 0;       // strong competitive pairs (niche overlap)
+    int    n_mutualism = 0;         // mutualistic pairs
+    double carbon = 0.0;            // standing carbon stock (kg/m^2, ~50% of biomass)
+    double nitrogen = 0.0;          // standing nitrogen stock (Redfield-ish C:N)
 };
 
 struct Community {

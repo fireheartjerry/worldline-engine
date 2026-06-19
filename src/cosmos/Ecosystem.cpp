@@ -1,6 +1,7 @@
 #include "cosmos/Ecosystem.hpp"
 
 #include "cosmos/Astrobio.hpp"
+#include "cosmos/Interactions.hpp"
 #include "cosmos/Phonology.hpp"
 #include "cosmos/Phylogeny.hpp"
 #include "cosmos/Spectrum.hpp"
@@ -310,6 +311,25 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome,
         impact /= (sp[static_cast<std::size_t>(j)].biomass + 1.0e-12); // outsized effect vs own biomass
         if (impact > best) { best = impact; C.stats.keystone = j; }
     }
+
+    // ── 9. Signed-interaction structure + nutrient pools (beyond predation) ────
+    // Classify every species pair into the broader community matrix (competition,
+    // mutualism, ...) so the ecosystem reads as a real interaction web, not just a
+    // food chain. These are weak relative to predation (kept so for May stability).
+    int n_comp = 0, n_mut = 0;
+    for (int i = 0; i < S; ++i)
+        for (int j = i + 1; j < S; ++j) {
+            const interact::PairEffect pe =
+                interact::classify(sp[static_cast<std::size_t>(i)].t, sp[static_cast<std::size_t>(j)].t);
+            if (pe.type == interact::Interaction::Competition) ++n_comp;
+            else if (pe.type == interact::Interaction::Mutualism) ++n_mut;
+        }
+    C.stats.n_competition = n_comp;
+    C.stats.n_mutualism = n_mut;
+    // Standing nutrient stocks: carbon ~50% of dry biomass; nitrogen via a C:N
+    // ratio (terrestrial ~11, aquatic closer to Redfield ~6.6).
+    C.stats.carbon = 0.5 * tot_bio;
+    C.stats.nitrogen = C.stats.carbon / (biome.aquatic ? 6.6 : 11.0);
     return C;
 }
 

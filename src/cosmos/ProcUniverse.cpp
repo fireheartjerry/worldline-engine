@@ -454,7 +454,12 @@ void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent, const ProcUniver
     add_fact(n, "Food-web links", std::to_string(comm.stats.n_links));
     add_fact(n, "Connectance", fmt_g(comm.stats.connectance, 2));
     add_fact(n, "Stability margin", fmt_g(comm.stats.stability_margin, 2));
+    add_fact(n, "Competition pairs", std::to_string(comm.stats.n_competition));
+    if (comm.stats.n_mutualism > 0)
+        add_fact(n, "Mutualisms", std::to_string(comm.stats.n_mutualism));
     add_fact(n, "Total biomass", fmt_g(comm.stats.total_biomass, 2) + " kg/m2");
+    add_fact(n, "Carbon stock", fmt_g(comm.stats.carbon, 2) + " kg/m2");
+    add_fact(n, "Nitrogen stock", fmt_g(comm.stats.nitrogen, 3) + " kg/m2");
     if (comm.stats.keystone >= 0 && comm.stats.keystone < static_cast<int>(comm.species.size()))
         add_fact(n, "Keystone", comm.species[static_cast<std::size_t>(comm.stats.keystone)].name);
 }
