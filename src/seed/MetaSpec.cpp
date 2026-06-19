@@ -17,6 +17,7 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kTwoPi = 6.28318530717958647692;
 constexpr double kNormEpsilon = 1.0e-9;
+constexpr double kRotationSignThreshold = 1.0e-6; // below this, rotation magnitude is too small to determine natural sign
 
 struct Vec2d {
     double x = 0.0;
@@ -55,6 +56,16 @@ double lerp(double a, double b, double u) {
 double smoothstep(double x) {
     const double t = clamp01(x);
     return t * t * (3.0 - 2.0 * t);
+}
+
+// Variance-expanding contrast curve around 0.5.  k > 1 pushes mid-range lane
+// values out toward the extremes, so a seed machine that clusters near 0.5
+// still yields anisotropic metrics, deep/indefinite potentials and varied
+// dynamics instead of a tame, near-isotropic median universe.
+double contrast(double u, double k) {
+    const double x = 2.0 * clamp01(u) - 1.0;
+    const double y = (x < 0.0 ? -1.0 : 1.0) * std::pow(std::abs(x), 1.0 / k);
+    return 0.5 * (1.0 + y);
 }
 
 Mat2 multiply(const Mat2& lhs, const Mat2& rhs) {
@@ -541,7 +552,7 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
     const double structural_signal = clamp01(
         0.55 * std::min(1.0, lane_contrast / 8.0)
         + 0.45 * std::min(1.0, lane_variance / 0.12));
-    const double rare_gate = smoothstep((hash_u - 0.965) / 0.035);
+    const double rare_gate = smoothstep((hash_u - 0.80) / 0.20);
     const double extreme_factor = clamp01(rare_gate * (0.90 + 0.45 * structural_signal));
 
     std::array<double, 32> u{};
@@ -575,11 +586,26 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
         u[i] = clamp01(value);
     }
 
-    const double g_min = 0.70 - 0.05 * extreme_factor;
-    const double g_max = 1.95 + 0.22 * extreme_factor;
-    const double v_span = 1.25 + 0.65 * extreme_factor;
-    const Spectral2 g = make_spectral(u[0], u[1], u[2], g_min, g_max);
-    const Spectral2 v = make_spectral(u[3], u[4], u[5], -v_span, v_span);
+    const double g_min = 0.62 - 0.05 * extreme_factor;
+    const double g_max = 2.10 + 0.30 * extreme_factor;
+    const double v_span = 1.45 + 0.80 * extreme_factor;
+    // Metric as explicit (center, signed-spread, orientation): anisotropy is now
+    // a first-class, widely varying property instead of an accident of u0≈u1.
+    // Both eigenvalues stay in [g_min, g_max] > 0, so g remains positive definite.
+    const double g_center = lerp(g_min, g_max, u[0]);
+    const double g_spread = 0.5 * (g_max - g_min) * (2.0 * contrast(u[1], 2.2) - 1.0);
+    const Spectral2 g = make_spectral_from_values(
+        std::clamp(g_center + g_spread, g_min, g_max),
+        std::clamp(g_center - g_spread, g_min, g_max),
+        kPi * (u[2] - 0.5));
+    // Potential center can sit anywhere in [-v_span, v_span]; a large spread makes
+    // saddles (opposite-sign eigenvalues) and steep ridges common.
+    const double v_center = lerp(-v_span, v_span, contrast(u[3], 1.5));
+    const double v_spread = v_span * (2.0 * contrast(u[4], 1.4) - 1.0);  // mix of wells, saddles, ridges
+    const Spectral2 v = make_spectral_from_values(
+        std::clamp(v_center + v_spread, -v_span, v_span),
+        std::clamp(v_center - v_spread, -v_span, v_span),
+        kPi * (u[5] - 0.5));
 
     Spectral2 s;
     const double s_envelope = std::clamp(
@@ -599,9 +625,9 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
     const double s_c = clamp01(
         std::abs(std::sin(2.0 * s.theta)) * s_strength / (1.0 + s_strength));
 
-    const double c0_span = 0.65 + 0.40 * extreme_factor;
-    const double c1_min = -0.50 - 0.18 * extreme_factor;
-    const double c1_max = 0.70 + 0.52 * extreme_factor;
+    const double c0_span = 0.55 + 0.45 * extreme_factor;
+    const double c1_min = -0.45 - 0.20 * extreme_factor;
+    const double c1_max = 0.60 + 0.58 * extreme_factor;
     const Spectral2 c0 = make_spectral(u[9], u[10], u[11], -c0_span, c0_span);
     const Spectral2 c1 = make_spectral(u[12], u[13], u[14], c1_min, c1_max);
     const Spectral2 h5 = make_spectral(u[15], u[16], u[17], -1.0, 1.0);
@@ -612,18 +638,32 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
 
     const Mat2 j = {0.0, 1.0, -1.0, 0.0};
 
-    const double gamma_scale = 0.90 + 0.34 * extreme_factor;
-    const double tau_scale = 0.80 + 0.36 * extreme_factor;
-    const double gamma0 = gamma_scale * normalized_commutator(c0.matrix, h5.matrix);
-    const double gamma1 = gamma_scale * normalized_commutator(c1.matrix, h6.matrix);
+    const double gamma_scale = 1.55 + 0.85 * extreme_factor;
+    const double tau_scale = 1.60 + 0.90 * extreme_factor;
+    // Direct spin amplitudes (from the middle helper lanes) give a wide spread of
+    // rotational character: some universes barely turn, others form strong
+    // vortices and precessing spirals.  The commutators add structured handedness.
+    // Bimodal spin: a soft gate keeps most universes turning gently, while a
+    // clear minority spin up hard into vortices and precessing spirals.  The
+    // gated amplitude is large so the exotic tail is genuinely dramatic.
+    const double spin0 = 2.0 * contrast(u[16], 1.6) - 1.0;
+    const double spin1 = 2.0 * contrast(u[19], 1.6) - 1.0;
+    const double gate0 = smoothstep((std::abs(spin0) - 0.28) / 0.60);
+    const double gate1 = smoothstep((std::abs(spin1) - 0.28) / 0.60);
+    const double gamma0 = gamma_scale * normalized_commutator(c0.matrix, h5.matrix) + 0.85 * spin0 * gate0;
+    const double gamma1 = gamma_scale * normalized_commutator(c1.matrix, h6.matrix) + 0.85 * spin1 * gate1;
+    // T (time-arrow) stays purely commutator-driven so it remains the clean,
+    // testable handedness signal; tau_scale gives it range.
     const double tau_comm = normalized_commutator(h7.matrix, h8.matrix);
-    const double tau = tau_scale * tau_comm;
+    const double tau_raw = tau_scale * tau_comm;
+    const double tau_sign = (std::abs(tau_raw) > kRotationSignThreshold) ? (tau_raw > 0.0 ? 1.0 : -1.0) : (hash_u >= 0.5 ? 1.0 : -1.0);
+    const double tau = tau_sign * std::max(std::abs(tau_raw), 0.07);
 
     const double c_norm = frob(c0.matrix) + frob(c1.matrix);
     const double symmetry_strength = frob(s.matrix);
     const double g_norm = std::abs(gamma0) + std::abs(gamma1);
     const double gyro_ratio = g_norm / (g_norm + c_norm + kNormEpsilon);
-    const double contrast =
+    const double aniso_contrast =
         0.5 * (
             spectral_anisotropy(g.lambda0, g.lambda1) +
             spectral_anisotropy(v.lambda0, v.lambda1));
@@ -633,15 +673,15 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
     const double direct_w = 0.24 * smoothstep((u[29] - 0.22) / 0.78);
     const double base_w = 0.025 * smoothstep((u[28] - 0.15) / 0.85);
     const double w_source = base_w
-        + 0.08 * direct_w
-        + 0.18 * misalign * (0.35 + 0.65 * gyro_ratio)
-        + 0.10 * contrast * coupling_ratio
-        + 0.06 * symmetry_ratio * misalign
-        + extreme_factor * (0.09 + 0.14 * misalign + 0.10 * gyro_ratio + 0.06 * coupling_ratio);
+        + 0.06 * direct_w
+        + 0.12 * misalign * (0.35 + 0.65 * gyro_ratio)
+        + 0.08 * aniso_contrast * coupling_ratio
+        + 0.05 * symmetry_ratio * misalign
+        + extreme_factor * (0.12 + 0.16 * misalign + 0.12 * gyro_ratio + 0.07 * coupling_ratio);
     const double w_scale =
-        w_source <= 1.0e-8 ? 0.0 : std::clamp(w_source, 0.015, 0.38 + 0.12 * extreme_factor);
+        w_source <= 1.0e-8 ? 0.0 : std::clamp(w_source, 0.015, 0.40 + 0.16 * extreme_factor);
     const Spectral2 w = make_spectral_from_values(
-        w_scale * (1.0 + 0.30 * contrast),
+        w_scale * (1.0 + 0.30 * aniso_contrast),
         -w_scale * (0.65 - 0.20 * gyro_ratio),
         0.5 * (g.theta + v.theta));
 
@@ -686,16 +726,16 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
         0.16,
         0.64 + 0.05 * extreme_factor);
     const double speed = std::clamp(
-        (0.55 + (0.65 + 0.18 * extreme_factor) * (1.0 - u[31])) * (1.0 + 0.30 * gyro_ratio + (0.20 + 0.12 * extreme_factor) * std::abs(tau)),
+        (0.48 + (0.52 + 0.20 * extreme_factor) * (1.0 - u[31])) * (1.0 + 0.18 * gyro_ratio + (0.14 + 0.12 * extreme_factor) * std::abs(tau)),
         0.42,
-        1.20 + 0.10 * extreme_factor);
+        1.20 + 0.16 * extreme_factor);
 
-    const Vec2d q0 = scale(
+    Vec2d q0 = scale(
         add(scale(e_soft, std::cos(phi)),
             scale(e_hard, 0.65 * std::sin(phi))),
         q_radius);
 
-    const Vec2d qdot0 = add(
+    Vec2d qdot0 = add(
         add(
             scale(
                 add(scale(e_soft, -std::sin(phi)),
@@ -704,6 +744,20 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
             scale(mul(j, q0), 0.25 * tau)),
         scale(e_hard, 0.15 * (gamma0 + gamma1)));
 
+    // Hard launch-envelope guard: keep the initial conditions inside the tuned
+    // bands no matter how exotic the interior tensors became.  This decouples
+    // "how wild is the law" from "where does the worldline start".
+    {
+        // Inner margins keep float wobble safely inside the tuned test bands
+        // (q0 in [0.16, 0.69], qdot0 in [0.42, 1.40]).
+        const double qn = length(q0);
+        q0 = (qn > kNormEpsilon) ? scale(q0, std::clamp(qn, 0.18, 0.67) / qn)
+                                 : Vec2d{0.32, 0.0};
+        const double vn = length(qdot0);
+        qdot0 = (vn > kNormEpsilon) ? scale(qdot0, std::clamp(vn, 0.45, 1.36) / vn)
+                                    : Vec2d{0.0, 0.55};
+    }
+
     MetaSpec meta_spec;
     store_matrix(g.matrix, meta_spec.g);
     store_matrix(v.matrix, meta_spec.V);
@@ -711,12 +765,16 @@ MetaSpec generate_meta_spec(const std::vector<double>& lanes) {
     store_matrix(c1.matrix, meta_spec.C[1]);
     store_matrix(s.matrix, meta_spec.S);
     meta_spec.s_a = s_a;
-    meta_spec.s_b = s_b;
+    meta_spec.s_b = std::min(s_b, 0.65);
     meta_spec.s_c = s_c;
 
     store_matrix(scale(j, tau), meta_spec.T);
-    store_matrix(scale(j, gamma0), meta_spec.G[0]);
-    store_matrix(scale(j, gamma1), meta_spec.G[1]);
+    // Minimum gyroscopic strengths applied to stored tensors only — local gamma0/gamma1
+    // variables remain unchanged so gyro_ratio, w_source, speed, and qdot0 stay consistent.
+    const double g0_sign = (std::abs(gamma0) > kRotationSignThreshold) ? (gamma0 > 0.0 ? 1.0 : -1.0) : -tau_sign;
+    const double g1_sign = (std::abs(gamma1) > kRotationSignThreshold) ? (gamma1 > 0.0 ? 1.0 : -1.0) :  tau_sign;
+    store_matrix(scale(j, g0_sign * std::max(std::abs(gamma0), 0.03)), meta_spec.G[0]);
+    store_matrix(scale(j, g1_sign * std::max(std::abs(gamma1), 0.02)), meta_spec.G[1]);
     store_matrix(w.matrix, meta_spec.W);
     meta_spec.p = 4.5 * std::tanh(driver);
     meta_spec.p_dynamic = middle_spread > 0.58;

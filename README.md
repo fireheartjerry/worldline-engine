@@ -5,11 +5,13 @@ Worldline is a desktop simulation instrument built with C++ and raylib.
 Its flagship experience is a deterministic seeded universe pipeline:
 
 - enter a seed string
-- generate a `MetaSpec`, `LawSpec`, and `ObservableExtractor`
-- run the generated law live every frame
-- render the resulting motion through the existing pendulum renderer as a visual backend
+- generate a `MetaSpec` (a vault of tensors: metric, potential, coupling, gyroscopic, warp …) and assemble a `LawSpec` equation of motion
+- advect a swarm of tens of thousands of test masses through the **actual generated law** every frame
+- paint their world-lines as a luminous **phase-flow field** — vortices, spiral arms, shear sheets, saddles and accretion rings emerge directly from the seed
 
-The Newtonian pendulum is still included, but it is framed as a reference system rather than the main product surface.
+Each universe receives a signature colour palette derived from its own invariants, so no two seeds look alike, and an exotic-index / vorticity / flux / order readout for at-a-glance comparison.
+
+The Newtonian double pendulum is still included as a polished **reference system** for comparison, but the seeded universe is now rendered by the dedicated `FieldRenderer` rather than squashed onto two rods.
 
 ## Product Structure
 
@@ -34,9 +36,13 @@ The Newtonian pendulum is still included, but it is framed as a reference system
 
 ## Features
 
-- deterministic seeded universe generation
-- live `LawSpec` stepping with observable extraction every frame
-- pendulum-quality rendering and trail playback for seeded universes
+- deterministic seeded universe generation with genuinely exotic, varied laws
+  (anisotropic metrics, saddle/well/ridge potentials, gyroscopic vortices, warp)
+- live `FieldRenderer`: multithreaded advection of ~13k test masses through the
+  generated law, additive glow trails, cheap multi-tap bloom, a static streamline
+  atlas, a per-universe starfield, and a highlighted "hero" world-line
+- per-universe signature colour palette + live exotic-index / flux / swirl / order metrics
+- `tools/worldline_field_preview`: offline BMP renderer for universe "postcards" (no GPU needed)
 - saved local universe projects with title, notes, markers, and thumbnails
 - atlas search over seed text, descriptors, and derived metrics
 - timeline recording with scrubbing and pinned frames
@@ -90,8 +96,18 @@ cmake --build build --target package
 - `src/app` app shell, scene state, runtime ownership, persistence, copy
 - `src/physics` law stepping and observable extraction
 - `src/seed` deterministic generation pipeline
+- `src/renderer` `FieldRenderer` (live flow-field engine) + `FlowOperator` (shared lean force operator) + the reference pendulum renderer
 - `src/ui` desktop UI scenes and drawing primitives
+- `tools` offline field preview + corpus diagnostics
 - `tests` verification programs
+
+## Field preview tool
+
+Render universe "postcards" to a BMP without opening a window:
+
+```powershell
+.\build\worldline_field_preview.exe --size 460 andromeda vortex-sigma saddle-rift helix-nine
+```
 
 ## Tooling
 

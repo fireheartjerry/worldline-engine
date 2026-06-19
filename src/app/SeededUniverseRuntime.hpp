@@ -5,6 +5,7 @@
 #include "physics/LawSpec.hpp"
 #include "physics/ObservableExtractor.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -12,6 +13,8 @@ struct SeededUniverseRuntime {
     std::unique_ptr<LawSpec> law_spec;
     std::unique_ptr<ObservableExtractor> extractor;
     LawState law_state{};
+    // Bumped on every configure() so the field renderer knows when to rebuild.
+    std::uint64_t config_token = 0;
     PendulumDraft visual_draft{};
     Simulation visual_simulation{};
     PendulumState visual_smoothed{};

@@ -289,6 +289,23 @@ ObservableExtractor::ObservableExtractor(const LawSpec& law_spec)
     q_scale_minor_ = std::max(0.22, std::abs(dot(q0, g_minor_axis_)) + 0.03 * draft_.l2 + meta.drift_amp);
     v_scale_major_ = std::max(0.30, std::abs(dot(v0, g_major_axis_)) + 0.06 * draft_.l1);
     v_scale_minor_ = std::max(0.30, std::abs(dot(v0, g_minor_axis_)) + 0.06 * draft_.l2);
+
+    // Warm-up: run the same trajectory used for the law preview so that scale
+    // reflects the actual orbit range rather than just the initial conditions.
+    // Prevents pendulum from appearing frozen when the orbit is small relative
+    // to an early transient peak that pinned the scale high.
+    {
+        LawState ws = law_spec_.initial_state();
+        constexpr int kWarmupSteps = APP_LAW_PREVIEW_SAMPLES;
+        constexpr double kWarmupDt = APP_LAW_PREVIEW_DT;
+        for (int i = 0; i < kWarmupSteps; ++i) {
+            ws = law_spec_.step(ws, kWarmupDt);
+            q_scale_major_ = std::max(q_scale_major_, std::abs(dot(ws.q, g_major_axis_)));
+            q_scale_minor_ = std::max(q_scale_minor_, std::abs(dot(ws.q, g_minor_axis_)));
+            v_scale_major_ = std::max(v_scale_major_, std::abs(dot(ws.v, g_major_axis_)));
+            v_scale_minor_ = std::max(v_scale_minor_, std::abs(dot(ws.v, g_minor_axis_)));
+        }
+    }
 }
 
 PendulumState ObservableExtractor::observe(const LawState& state, double dt) {

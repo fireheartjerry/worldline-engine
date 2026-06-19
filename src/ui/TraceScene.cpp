@@ -42,6 +42,7 @@ void draw_preview_path(Rectangle rect, const std::vector<Vec2>& points, Color ac
 
     const double span_x = std::max(1.0e-6, max_x - min_x);
     const double span_y = std::max(1.0e-6, max_y - min_y);
+    const float seg_count = static_cast<float>(std::max(std::size_t{1}, points.size() - 2));
     for (std::size_t index = 0; index + 1 < points.size(); ++index) {
         const Vec2& a = points[index];
         const Vec2& b = points[index + 1];
@@ -53,7 +54,9 @@ void draw_preview_path(Rectangle rect, const std::vector<Vec2>& points, Color ac
             rect.x + 12.0f + static_cast<float>((b.x - min_x) / span_x) * (rect.width - 24.0f),
             rect.y + 12.0f + static_cast<float>((b.y - min_y) / span_y) * (rect.height - 24.0f)
         };
-        DrawLineEx(p0, p1, 1.8f, with_alpha(accent, 200));
+        const float t = static_cast<float>(index) / seg_count;
+        const auto seg_alpha = static_cast<unsigned char>(110.0f + 100.0f * t);
+        DrawLineEx(p0, p1, 1.5f + 0.6f * t, with_alpha(accent, seg_alpha));
     }
 }
 

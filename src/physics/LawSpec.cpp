@@ -7,6 +7,7 @@ namespace {
 
 constexpr double kEpsilon = 1.0e-9;
 constexpr double kPotentialNormBound = 1.35;
+constexpr double kC1EnergyStripFraction = 0.82; // strip 82%, allow 18% radial injection
 
 struct Mat2 {
     double xx = 0.0;
@@ -234,14 +235,15 @@ LawState LawSpec::derivative(const LawState& state) const {
     force -= mul(potential, current.q) * (potential_linear_gain_ * potential_weight);
     force += mul(coupling0, current.q) * position_weight;
     {
-        // Velocity coupling: preserve the transverse (gyroscopic/redirecting) component
-        // but remove any radial component that injects energy into the system.
-        // This keeps all the exotic orbit-bending behavior while preventing unbounded growth.
+        // Velocity coupling: strip most of the radial energy-injecting component but
+        // allow 18% through. The residual injection creates speed variation and
+        // orbit-breathing dynamics; the position and velocity governors absorb any
+        // excess so growth remains bounded.
         const Vec2 c1_raw = mul(coupling1, current.v) * velocity_weight;
         const double c1_power = c1_raw.dot(current.v);
         if (c1_power > 0.0) {
             const double v_eucl_sq = current.v.dot(current.v);
-            force += c1_raw - current.v * (c1_power / (v_eucl_sq + kEpsilon));
+            force += c1_raw - current.v * (kC1EnergyStripFraction * c1_power / (v_eucl_sq + kEpsilon));
         } else {
             force += c1_raw;
         }

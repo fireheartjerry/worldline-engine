@@ -26,6 +26,26 @@ std::string first_paragraph(const std::string& text) {
     return text.substr(0, split);
 }
 
+// Horizontal glow meter (rounded track, gradient fill).
+void draw_meter(Rectangle bar, float value01, Color lo, Color hi) {
+    DrawRectangleRounded(bar, 0.5f, 8, {6, 14, 24, 220});
+    DrawRectangleRoundedLines(bar, 0.5f, 8, 1.0f, with_alpha(WL::GLASS_BORDER, 90));
+    const float w = std::clamp(value01, 0.0f, 1.0f) * (bar.width - 4.0f);
+    if (w > 1.5f) {
+        const Rectangle fill = {bar.x + 2.0f, bar.y + 2.0f, w, bar.height - 4.0f};
+        DrawRectangleGradientEx(fill, lo, hi, hi, lo);
+        DrawRectangleRoundedLines(bar, 0.5f, 8, 1.0f, with_alpha(hi, 70));
+    }
+}
+
+// Small labelled readout chip (label over value).
+void draw_chip(Rectangle rect, const char* label, const std::string& value, Color accent, float scale) {
+    DrawRectangleRounded(rect, 0.18f, 6, {6, 13, 22, 210});
+    DrawRectangleRoundedLines(rect, 0.18f, 6, 1.0f, with_alpha(accent, 70));
+    draw_text(label, {rect.x + 8.0f * scale, rect.y + 5.0f * scale}, 10.0f * scale, with_alpha(accent, 200));
+    draw_text(value, {rect.x + 8.0f * scale, rect.y + 17.0f * scale}, 15.0f * scale, WL::TEXT_PRIMARY);
+}
+
 void draw_glossary_modal(bool& open, Rectangle viewport, float scale) {
     if (!open) {
         return;
@@ -163,7 +183,8 @@ void draw_timeline(Rectangle rect,
 void draw_stage_overlay(Rectangle rect,
                         const SeededUniverseUiState& seeded,
                         const SeededUniverseRuntime* runtime,
-                        float scale) {
+                        float scale,
+                        const FieldReadout& fr) {
     DrawRectangleRoundedLines(rect, 0.04f, 8, 1.2f, with_alpha(WL::CYAN_DIM, 80));
     DrawLineEx({rect.x + 12.0f * scale, rect.y + 1.0f},
                {rect.x + rect.width - 12.0f * scale, rect.y + 1.0f},
@@ -172,7 +193,7 @@ void draw_stage_overlay(Rectangle rect,
 
     const Rectangle label_bar = {rect.x + 14.0f * scale, rect.y + 14.0f * scale, rect.width - 28.0f * scale, 34.0f * scale};
     DrawRectangleRounded(label_bar, 0.12f, 8, {4, 10, 18, 148});
-    draw_text("Live Stage",
+    draw_text("Phase-Flow Field",
               {label_bar.x + 12.0f * scale, label_bar.y + 9.0f * scale},
               14.0f * scale,
               WL::TEXT_PRIMARY);
@@ -193,6 +214,39 @@ void draw_stage_overlay(Rectangle rect,
                badge_fill,
                badge_text,
                scale);
+
+    // ── Exotic-physics instrument HUD ────────────────────────────────────────
+    if (fr.valid) {
+        const float hud_y = label_bar.y + label_bar.height + 10.0f * scale;
+        const float hud_right = rect.x + rect.width - 14.0f * scale;
+
+        const Rectangle ix_card = {rect.x + 14.0f * scale, hud_y, 250.0f * scale, 46.0f * scale};
+        DrawRectangleRounded(ix_card, 0.16f, 8, {4, 10, 18, 180});
+        DrawRectangleRoundedLines(ix_card, 0.16f, 8, 1.0f, with_alpha(fr.accent, 80));
+        draw_text("EXOTIC INDEX",
+                  {ix_card.x + 10.0f * scale, ix_card.y + 6.0f * scale},
+                  10.5f * scale, with_alpha(fr.accent, 215));
+        draw_text(metric_text(fr.exotic_index, 0),
+                  {ix_card.x + ix_card.width - 48.0f * scale, ix_card.y + 4.0f * scale},
+                  20.0f * scale, WL::TEXT_PRIMARY);
+        draw_meter({ix_card.x + 10.0f * scale, ix_card.y + 30.0f * scale, ix_card.width - 62.0f * scale, 9.0f * scale},
+                   fr.exotic_index / 100.0f, fr.cool, fr.hot);
+
+        const float chip_w = 92.0f * scale, chip_h = 36.0f * scale, chip_gap = 8.0f * scale;
+        float cx = ix_card.x + ix_card.width + chip_gap;
+        const float chip_y = hud_y + 5.0f * scale;
+        if (cx + chip_w <= hud_right) {
+            draw_chip({cx, chip_y, chip_w, chip_h}, "FLUX", metric_text(fr.flux, 2), fr.cool, scale);
+            cx += chip_w + chip_gap;
+        }
+        if (cx + chip_w <= hud_right) {
+            draw_chip({cx, chip_y, chip_w, chip_h}, "SWIRL", metric_text(fr.vorticity, 2), fr.accent, scale);
+            cx += chip_w + chip_gap;
+        }
+        if (cx + chip_w <= hud_right) {
+            draw_chip({cx, chip_y, chip_w, chip_h}, "ORDER", metric_text(fr.coherence, 2), fr.hot, scale);
+        }
+    }
 
     const Rectangle footer = {rect.x + 14.0f * scale, rect.y + rect.height - 54.0f * scale, rect.width - 28.0f * scale, 40.0f * scale};
     DrawRectangleRounded(footer, 0.10f, 8, {4, 10, 18, 148});
@@ -217,7 +271,8 @@ void draw_inspector(AppState& app,
                     Rectangle rect,
                     SeededUniverseUiState& seeded,
                     float scale,
-                    SeedWorkspaceSceneResult& result) {
+                    SeedWorkspaceSceneResult& result,
+                    const FieldReadout& fr) {
     draw_card(rect, {6, 14, 24, 234}, with_alpha(WL::GLASS_BORDER, 100));
     draw_text("Inspector",
               {rect.x + 16.0f * scale, rect.y + 14.0f * scale},
@@ -262,23 +317,36 @@ void draw_inspector(AppState& app,
 
     SeededUniverseRuntime* runtime = seeded.runtime.get();
     const float metric_y = note_rect.y + 52.0f * scale;
-    draw_text("Live state",
+    draw_text("Universe signature",
               {rect.x + 16.0f * scale, metric_y - 16.0f * scale},
               11.0f * scale,
               with_alpha(WL::CYAN_CORE, 175));
-    if (runtime != nullptr && runtime->ready()) {
-        draw_metric({rect.x + 16.0f * scale, metric_y, rect.width - 32.0f * scale, 52.0f * scale},
-                    "Observed p",
-                    metric_text(runtime->law_state.p, 3),
-                    scale);
-        draw_metric({rect.x + 16.0f * scale, metric_y + 60.0f * scale, rect.width - 32.0f * scale, 52.0f * scale},
-                    "State radius",
-                    metric_text(runtime->law_state.q.length(), 2),
-                    scale);
-        draw_metric({rect.x + 16.0f * scale, metric_y + 120.0f * scale, rect.width - 32.0f * scale, 52.0f * scale},
-                    "Speed",
-                    metric_text(runtime->law_state.v.length(), 2),
-                    scale);
+    if (fr.valid) {
+        const Rectangle sw = {rect.x + rect.width - 96.0f * scale, metric_y - 19.0f * scale, 80.0f * scale, 13.0f * scale};
+        const float seg = sw.width / 3.0f;
+        DrawRectangleRounded({sw.x, sw.y, seg - 1.0f, sw.height}, 0.4f, 4, fr.cool);
+        DrawRectangleRounded({sw.x + seg, sw.y, seg - 1.0f, sw.height}, 0.4f, 4, fr.accent);
+        DrawRectangleRounded({sw.x + seg * 2.0f, sw.y, seg - 1.0f, sw.height}, 0.4f, 4, fr.hot);
+    }
+    {
+        const float gap = 8.0f * scale;
+        const float th = 52.0f * scale;
+        const float row = th + 8.0f * scale;
+        const float tw = (rect.width - 32.0f * scale - gap) * 0.5f;
+        const float x0 = rect.x + 16.0f * scale;
+        const float x1 = x0 + tw + gap;
+        if (fr.valid) {
+            draw_metric({x0, metric_y, tw, th}, "Exotic Index", metric_text(fr.exotic_index, 0), scale);
+            draw_metric({x1, metric_y, tw, th}, "Order", metric_text(fr.coherence, 2), scale);
+        }
+        if (runtime != nullptr && runtime->ready()) {
+            draw_metric({x0, metric_y + row, tw, th}, "Observed p", metric_text(runtime->law_state.p, 2), scale);
+            draw_metric({x1, metric_y + row, tw, th}, "Radius", metric_text(runtime->law_state.q.length(), 2), scale);
+        }
+        if (fr.valid) {
+            draw_metric({x0, metric_y + row * 2.0f, tw, th}, "Flux", metric_text(fr.flux, 2), scale);
+            draw_metric({x1, metric_y + row * 2.0f, tw, th}, "Swirl", metric_text(fr.vorticity, 2), scale);
+        }
     }
 
     const float button_y = metric_y + 188.0f * scale;
@@ -385,7 +453,7 @@ void draw_header(Rectangle rect,
               {rect.x + 16.0f * scale, rect.y + 14.0f * scale},
               24.0f * scale,
               WL::TEXT_PRIMARY);
-    draw_text("Generated law, live renderer, timeline, and one-step access to detailed trace.",
+    draw_text("Generated law, live phase-flow field, timeline, and one-step access to detailed trace.",
               {rect.x + 16.0f * scale, rect.y + 42.0f * scale},
               13.0f * scale,
               WL::TEXT_SECONDARY);
@@ -456,7 +524,8 @@ void draw_header(Rectangle rect,
 } // namespace
 
 SeedWorkspaceSceneResult draw_seed_workspace_scene(AppState& app,
-                                                   Rectangle viewport) {
+                                                   Rectangle viewport,
+                                                   const FieldReadout& field_readout) {
     SeedWorkspaceSceneResult result;
     SeededUniverseUiState& seeded = app.ui.seeded;
     if (!seeded.result.ready && seeded.result.error.empty()) {
@@ -466,20 +535,12 @@ SeedWorkspaceSceneResult draw_seed_workspace_scene(AppState& app,
         seeded.save_feedback_timer = std::max(0.0f, seeded.save_feedback_timer - GetFrameTime());
     }
 
-    const float scale = std::clamp(std::min(viewport.width / 1540.0f, viewport.height / 940.0f), 0.84f, 1.12f);
-    const float margin = 18.0f * scale;
-    const Rectangle header = {viewport.x + margin, viewport.y + margin, viewport.width - margin * 2.0f, 116.0f * scale};
-    const float gap = 16.0f * scale;
-    const float inspector_w = std::clamp(viewport.width * 0.24f, 300.0f * scale, 360.0f * scale);
-    const float timeline_h = 132.0f * scale;
-    const Rectangle stage = {
-        viewport.x + margin,
-        header.y + header.height + gap,
-        viewport.width - margin * 2.0f - inspector_w - gap,
-        viewport.height - header.height - timeline_h - margin * 3.0f - gap * 2.0f
-    };
-    const Rectangle inspector = {stage.x + stage.width + gap, stage.y, inspector_w, stage.height + timeline_h + gap};
-    const Rectangle timeline = {stage.x, stage.y + stage.height + gap, stage.width, timeline_h};
+    const SeedWorkspaceLayout L = seed_workspace_layout(viewport);
+    const float scale = L.scale;
+    const Rectangle header = L.header;
+    const Rectangle stage = L.stage;
+    const Rectangle inspector = L.inspector;
+    const Rectangle timeline = L.timeline;
 
     if (draw_back_to_menu_button(viewport, scale) || (!seeded.input_active && IsKeyPressed(KEY_ESCAPE))) {
         result.back_requested = true;
@@ -499,9 +560,9 @@ SeedWorkspaceSceneResult draw_seed_workspace_scene(AppState& app,
     }
 
     draw_header(header, seeded, scale);
-    draw_inspector(app, inspector, seeded, scale, result);
+    draw_inspector(app, inspector, seeded, scale, result, field_readout);
     draw_timeline(timeline, seeded, scale);
-    draw_stage_overlay(stage, seeded, runtime, scale);
+    draw_stage_overlay(stage, seeded, runtime, scale, field_readout);
 
     if (!seeded.result.ready && !seeded.result.error.empty()) {
         draw_text_block(std::string("Generation failed.\n") + seeded.result.error,

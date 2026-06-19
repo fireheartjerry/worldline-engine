@@ -61,6 +61,18 @@ target_include_directories(worldline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(worldline raylib worldline_app)
 worldline_apply_warnings(worldline)
 
+# Offline field preview (no GPU/window) — renders the generated flow to a BMP.
+add_executable(worldline_field_preview tools/field_preview.cpp)
+target_include_directories(worldline_field_preview PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_field_preview PRIVATE worldline_physics)
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(worldline_field_preview PRIVATE -O2)
+endif()
+
+add_executable(worldline_metaspec_stats tools/metaspec_stats.cpp)
+target_include_directories(worldline_metaspec_stats PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_metaspec_stats PRIVATE worldline_seed)
+
 add_executable(worldline_physics_tests tests/physics_verification.cpp)
 target_include_directories(worldline_physics_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(worldline_physics_tests PRIVATE worldline_physics)

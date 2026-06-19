@@ -179,7 +179,7 @@ GuidedFirstUniverseSceneResult draw_guided_first_universe_scene(AppState& app,
                     guided.reveal_time >= 0.3f);
     draw_stage_card({stages.x + 18.0f * scale, row_y + card_h + card_gap, card_w, card_h},
                     "03 Law Assembly",
-                    "LawSpec builds the equation of motion and ObservableExtractor maps the generated state into visible pendulum motion.",
+                    "LawSpec assembles the equation of motion, then the field engine advects tens of thousands of test masses through it to reveal the universe's living flow.",
                     WL::PLASMA_GREEN,
                     scale,
                     guided.reveal_time >= 0.6f);

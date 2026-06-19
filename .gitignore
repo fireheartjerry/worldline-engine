@@ -24,3 +24,8 @@ _deps/
 # OS
 .DS_Store
 Thumbs.db
+
+# Field preview / diagnostic tool output
+field_preview.bmp
+*.preview.bmp
+live_shot*.png

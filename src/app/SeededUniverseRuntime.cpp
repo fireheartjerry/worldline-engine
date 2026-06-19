@@ -15,8 +15,8 @@ SeededLawPreview build_law_preview(const MetaSpec& meta_spec) {
     SeededLawPreview preview;
     LawSpec law(meta_spec);
     LawState state = law.initial_state();
-    constexpr int kSamples = 192;
-    constexpr double kDt = 0.02;
+    constexpr int kSamples = APP_LAW_PREVIEW_SAMPLES;
+    constexpr double kDt = APP_LAW_PREVIEW_DT;
 
     preview.phase_path.reserve(kSamples + 1);
     preview.p_samples.reserve(kSamples + 1);
@@ -172,6 +172,7 @@ void SeededUniverseRuntime::configure(const MetaSpec& meta_spec) {
     law_spec = std::make_unique<LawSpec>(meta_spec);
     extractor = std::make_unique<ObservableExtractor>(*law_spec);
     visual_draft = extractor->draft();
+    ++config_token;
     restart();
 }
 

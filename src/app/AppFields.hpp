@@ -29,6 +29,8 @@ inline constexpr double APP_MIN_OMEGA_DEG = -720.0;
 inline constexpr double APP_MAX_OMEGA_DEG = 720.0;
 inline constexpr double APP_PHYS_DT = 0.001;
 inline constexpr int APP_MAX_STEPS_PER_FRAME = 42;
+inline constexpr int APP_LAW_PREVIEW_SAMPLES = 360;
+inline constexpr double APP_LAW_PREVIEW_DT = 0.02;
 
 inline const std::array<FieldSpec, 4> GEOMETRY_FIELDS{{
     {FieldId::LENGTH1, "Upper Reach", &PendulumDraft::l1, APP_MIN_LENGTH, APP_MAX_LENGTH, 2, "m"},
