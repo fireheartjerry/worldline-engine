@@ -277,7 +277,15 @@ void draw_inspector(const CosmosState& cosmos, Rectangle rect, float scale) {
     tile(0, 2, "STABILITY", fmt_fixed(o.stability, 2));
     tile(1, 2, "BINDING", fmt_fixed(o.binding, 2));
 
-    float y = grid_y + 3.0f * (tile_h + 6.0f * scale) + 4.0f * scale;
+    // Derived physics — computed live from the SI mass/radius anchors
+    // (display only; the sandbox dynamics are dimensionless and unaffected).
+    const DerivedQuantities dq = derive_quantities(o.rest_mass_kg, o.radius_m);
+    tile(0, 3, "DENSITY (kg/m3)", fmt_sci(dq.density_kg_m3));
+    tile(1, 3, "SCHWARZSCHILD (m)", fmt_sci(dq.schwarzschild_m));
+    tile(0, 4, "ESCAPE V (m/s)", fmt_sci(dq.escape_velocity_ms));
+    tile(1, 4, "COMPACTNESS rs/r", fmt_fixed(dq.compactness, 3));
+
+    float y = grid_y + 5.0f * (tile_h + 6.0f * scale) + 4.0f * scale;
 
     // Constituents — what this object is built from (clickable to navigate).
     const auto parts = resolve_constituents(cosmos.catalog, o);
