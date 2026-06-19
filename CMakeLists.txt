@@ -49,6 +49,7 @@ add_library(worldline_cosmos
     src/cosmos/Universe.cpp
     src/cosmos/ObserverFleet.cpp
     src/cosmos/ProcUniverse.cpp
+    src/cosmos/Ecosystem.cpp
     src/cosmos/Nav3D.cpp
 )
 target_include_directories(worldline_cosmos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -147,6 +148,12 @@ target_include_directories(worldline_cosmos_phonology_tests PRIVATE ${CMAKE_CURR
 target_link_libraries(worldline_cosmos_phonology_tests PRIVATE worldline_cosmos)
 worldline_apply_warnings(worldline_cosmos_phonology_tests)
 add_test(NAME cosmos_phonology_verification COMMAND worldline_cosmos_phonology_tests)
+
+add_executable(worldline_cosmos_ecosystem_tests tests/cosmos_ecosystem_verification.cpp)
+target_include_directories(worldline_cosmos_ecosystem_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_ecosystem_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_ecosystem_tests)
+add_test(NAME cosmos_ecosystem_verification COMMAND worldline_cosmos_ecosystem_tests)
 
 install(TARGETS worldline RUNTIME DESTINATION .)
 install(FILES README.md LICENSE DESTINATION .)

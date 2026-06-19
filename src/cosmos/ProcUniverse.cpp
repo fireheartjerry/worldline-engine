@@ -1,6 +1,7 @@
 #include "cosmos/ProcUniverse.hpp"
 
 #include "cosmos/Astrobio.hpp"
+#include "cosmos/Ecosystem.hpp"
 #include "cosmos/Phonology.hpp"
 
 #include <array>
@@ -319,6 +320,18 @@ void gen_planet(ProcNode& n, Rng& r, const ProcNode* parent) {
     }
 }
 
+// Rebuild the deterministic community for an ecosystem node from its stored
+// climate (so the ecosystem panel and each creature it contains agree).
+eco::Community ecosystem_community(const ProcNode& eco_node) {
+    eco::BiomeParams b;
+    b.temp_c = eco_node.temperature_c;
+    b.precip_mm = eco_node.precip_mm;
+    const astro::Biome biome = astro::biome_for(b.temp_c, b.precip_mm);
+    b.npp = astro::npp_for(biome);
+    b.aquatic = (biome == astro::Biome::Ocean);
+    return eco::generate_community(eco_node.seed, b);
+}
+
 void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent) {
     // Biome from the planet's climate, perturbed per-ecosystem (latitude band).
     double temp = 18.0, precip = 1200.0;
@@ -327,64 +340,88 @@ void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent) {
         precip = std::max(0.0, parent->precip_mm * r.range(0.5, 1.4));
     }
     const astro::Biome biome = astro::biome_for(temp, precip);
-    const double npp = astro::npp_for(biome);
     n.subtype = static_cast<int>(biome);
+    n.temperature_c = temp; // stored so creatures rebuild the same community
+    n.precip_mm = precip;
     n.color = hsv8(astro::biome_hue(biome), 0.6, 0.85);
 
-    // Species richness scales with productivity (species-energy hypothesis).
-    const int count = std::clamp(
-        6 + static_cast<int>(astro::richness_factor(npp) * 30.0 + 0.5), 6, 40);
-    n.descriptor = std::string(astro::biome_name(biome)) + " — " + std::to_string(count) +
-                   " species, NPP " + fmt_g(npp, 2) + " g/m2/yr.";
+    // Assemble a full continuous trait-based community (the real ecosystem).
+    const eco::Community comm = ecosystem_community(n);
+    const double npp = astro::npp_for(biome);
+    n.descriptor = std::string(astro::biome_name(biome)) + " — " +
+                   std::to_string(comm.species.size()) + " species across " +
+                   fmt_g(comm.stats.n_levels + 1.0, 2) + " trophic levels.";
 
-    int producers = 0, herbivores = 0, carnivores = 0;
-    for (int i = 0; i < count; ++i) {
+    // Lay species out as a food web: y = trophic level (producers low, apex high),
+    // x = log body mass within the level (Hutchinson spacing reads as gaps).
+    const double maxtau = std::max(1.0, comm.stats.n_levels);
+    for (std::size_t i = 0; i < comm.species.size(); ++i) {
+        const eco::Species& sp = comm.species[i];
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
-        const Identity id = identity_for(NodeKind::Creature, cs);
-        const int role = creature_role(cs);
-        if (role == 0) ++producers; else if (role == 1) ++herbivores; else ++carnivores;
-        // Cluster by trophic role so the food web reads spatially.
-        const double rad = std::sqrt(r.f01()) * 0.92;
-        const double ang = r.f01() * kTau;
         ChildRef c;
         c.seed = cs; c.kind = NodeKind::Creature;
-        c.x = static_cast<float>(std::cos(ang) * rad);
-        c.y = static_cast<float>(std::sin(ang) * rad);
-        c.phase = static_cast<float>(r.f01() * kTau);
-        c.size = id.size; c.color = id.color; c.name = id.name;
-        c.subtype = role;
+        c.y = static_cast<float>(0.82 - 1.64 * (sp.t.tau / maxtau));
+        c.x = static_cast<float>(clampd((sp.t.m + 4.0) / 9.0, 0.0, 1.0) * 1.6 - 0.8 +
+                                 0.06 * std::sin(sp.t.phi * kTau));
+        c.phase = static_cast<float>(sp.t.phi * kTau);
+        c.size = static_cast<float>(clampd(0.3 + 0.11 * (sp.t.m + 4.0), 0.2, 1.0));
+        c.color = sp.color; c.name = sp.name;
+        c.subtype = static_cast<int>(clampd(sp.t.tau, 0.0, 3.0));
+        c.orbit_au = sp.t.tau; // stash trophic level for the renderer
         n.children.push_back(std::move(c));
     }
+
     add_fact(n, "Biome", astro::biome_name(biome));
     add_fact(n, "Temperature", fmt_g(temp, 3) + " C");
     add_fact(n, "NPP", fmt_g(npp, 2) + " g/m2/yr");
-    add_fact(n, "Species", std::to_string(count));
-    add_fact(n, "Producers", std::to_string(producers));
-    add_fact(n, "Herbivores", std::to_string(herbivores));
-    add_fact(n, "Carnivores", std::to_string(carnivores));
+    add_fact(n, "Species", std::to_string(comm.stats.n_species));
+    add_fact(n, "Trophic levels", fmt_g(comm.stats.n_levels + 1.0, 2));
+    add_fact(n, "Food-web links", std::to_string(comm.stats.n_links));
+    add_fact(n, "Connectance", fmt_g(comm.stats.connectance, 2));
+    add_fact(n, "Stability margin", fmt_g(comm.stats.stability_margin, 2));
+    add_fact(n, "Total biomass", fmt_g(comm.stats.total_biomass, 2) + " kg/m2");
+    if (comm.stats.keystone >= 0 && comm.stats.keystone < static_cast<int>(comm.species.size()))
+        add_fact(n, "Keystone", comm.species[static_cast<std::size_t>(comm.stats.keystone)].name);
 }
 
-void gen_creature(ProcNode& n, Rng& r) {
+void gen_creature(ProcNode& n, Rng& r, const ProcNode* parent) {
+    if (parent != nullptr && parent->kind == NodeKind::Ecosystem) {
+        const eco::Community comm = ecosystem_community(*parent);
+        int idx = -1;
+        for (std::size_t k = 0; k < parent->children.size(); ++k)
+            if (parent->children[k].seed == n.seed) { idx = static_cast<int>(k); break; }
+        if (idx >= 0 && idx < static_cast<int>(comm.species.size())) {
+            const eco::Species& s = comm.species[static_cast<std::size_t>(idx)];
+            n.name = s.name; n.color = s.color;
+            n.subtype = static_cast<int>(clampd(s.t.tau, 0.0, 3.0));
+            n.descriptor = std::string("A ") + eco::role_label(s.t.tau) +
+                           " — trophic level " + fmt_g(s.t.tau + (s.t.tau >= 0.5 ? 0.0 : 0.0), 2) + ".";
+            add_fact(n, "Trophic role", eco::role_label(s.t.tau));
+            add_fact(n, "Trophic level", fmt_g(s.t.tau, 2));
+            add_fact(n, "Body mass", s.mass_kg < 1.0 ? fmt_g(s.mass_kg * 1000.0, 2) + " g"
+                                                     : fmt_g(s.mass_kg, 2) + " kg");
+            add_fact(n, "Metabolism", fmt_g(s.t.kappa * std::pow(std::max(1e-9, s.mass_kg), 0.75), 2) + " (rel.)");
+            add_fact(n, "Population", fmt_g(s.population, 2));
+            add_fact(n, "Thermal optimum", fmt_g(s.t.T_opt, 3) + " C");
+            add_fact(n, "Activity", s.t.phi < 0.25 || s.t.phi > 0.75 ? "diurnal" : "nocturnal");
+            add_fact(n, "Strategy", s.t.rho > 0.6 ? "r (fast, many young)"
+                                  : (s.t.rho < 0.4 ? "K (slow, few young)" : "intermediate"));
+            add_fact(n, "Defense", fmt_g(s.t.defense, 2));
+            // Top prey from the food web.
+            int best = -1; double bestp = 0.0;
+            for (const eco::Link& lk : comm.links)
+                if (lk.pred == idx && lk.pref > bestp) { bestp = lk.pref; best = lk.prey; }
+            if (best >= 0)
+                add_fact(n, "Main prey", comm.species[static_cast<std::size_t>(best)].name);
+            return;
+        }
+    }
+    // Fallback (no ecosystem context): a lone organism.
     const int role = creature_role(n.seed);
-    // Body mass by trophic level (producers small, carnivores large), then
-    // metabolism (Kleiber M^0.75) and abundance (Damuth M^-0.75).
-    const double base_kg = (role == 0) ? r.range(1.0e-4, 1.0)
-                         : (role == 1) ? r.range(1.0, 300.0)
-                                       : r.range(10.0, 1500.0);
-    const double metabolism = std::pow(base_kg, astro::kKleiberExp);   // relative
-    const double abundance  = std::pow(std::max(1.0e-6, base_kg), astro::kDamuthExp);
-    const int speed = static_cast<int>((role == 0 ? 0.0 : 5.0 + 60.0 * r.f01()) + 0.5);
-
     n.subtype = role;
-    n.descriptor = std::string("A ") + creature_role_name(role) +
-                   ((role == 0) ? " — the base of the food web." : " in this biome's food web.");
+    n.descriptor = "An organism.";
     add_fact(n, "Trophic role", creature_role_name(role));
-    add_fact(n, "Body mass", (base_kg < 1.0 ? fmt_g(base_kg * 1000.0, 2) + " g"
-                                            : fmt_g(base_kg, 2) + " kg"));
-    add_fact(n, "Metabolism", fmt_g(metabolism, 2) + " (rel.)");
-    add_fact(n, "Abundance", fmt_g(abundance, 2) + " (rel.)");
-    add_fact(n, "Speed", std::to_string(speed) + " km/h");
-    // Leaf: no children.
+    add_fact(n, "Body mass", fmt_g(r.range(0.01, 100.0), 2) + " kg");
 }
 
 } // namespace
@@ -454,7 +491,7 @@ ProcNode ProcUniverse::generate(std::uint64_t seed, NodeKind kind, const ProcNod
     case NodeKind::StarSystem: gen_starsystem(n, r); break;
     case NodeKind::Planet:     gen_planet(n, r, parent); break;
     case NodeKind::Ecosystem:  gen_ecosystem(n, r, parent); break;
-    case NodeKind::Creature:   gen_creature(n, r); break;
+    case NodeKind::Creature:   gen_creature(n, r, parent); break;
     default: break;
     }
     return n;

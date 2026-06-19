@@ -1,0 +1,312 @@
+#include "cosmos/Ecosystem.hpp"
+
+#include "cosmos/Astrobio.hpp"
+#include "cosmos/Phonology.hpp"
+#include "cosmos/Spectrum.hpp"
+
+#include <algorithm>
+#include <cmath>
+
+namespace cosmos {
+namespace eco {
+
+namespace {
+
+double sq(double x) { return x * x; }
+
+Color8 hsv8(double h, double s, double v) {
+    h -= std::floor(h);
+    const double i = std::floor(h * 6.0);
+    const double f = h * 6.0 - i;
+    const double p = v * (1.0 - s), q = v * (1.0 - f * s), t = v * (1.0 - (1.0 - f) * s);
+    double r = v, g = t, b = p;
+    switch (static_cast<int>(i) % 6) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    default: r = v; g = p; b = q; break;
+    }
+    return {static_cast<unsigned char>(r * 255.0), static_cast<unsigned char>(g * 255.0),
+            static_cast<unsigned char>(b * 255.0)};
+}
+
+constexpr double kB0 = 0.05; // metabolic scale constant (sim units)
+
+} // namespace
+
+const char* role_label(double tau) {
+    if (tau < 0.5) return "producer";
+    if (tau < 1.5) return "herbivore";
+    if (tau < 2.4) return "omnivore";
+    return "carnivore";
+}
+
+double role_hue(double tau) {
+    // green (producers) -> teal/blue (herbivores) -> red (apex), wrapping hue 0.
+    const double t = clampd(tau / 3.0, 0.0, 1.0);
+    return (t < 0.5) ? lerp(0.33, 0.58, t / 0.5) : lerp(0.58, 1.0, (t - 0.5) / 0.5);
+}
+
+Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
+    Community C;
+    C.biome = biome;
+    Stream rng(seed, 0xEC051Bull);
+
+    const double npp = std::max(1.0, biome.npp);
+    const double Rf = astro::richness_factor(npp);
+    const int S_max = std::clamp(static_cast<int>(std::lround(6 + 34 * Rf)), 4, 40);
+    const double L_max = std::clamp(2.0 + 1.3 * std::log2(npp / 90.0), 2.0, 5.0);
+    const double eff = biome.aquatic ? 0.16 : 0.10;   // Lindeman; aquatic higher
+    const double ppmr_lo = biome.aquatic ? 1.5 : 1.0; // log10 predator/prey mass band
+    const double ppmr_hi = biome.aquatic ? 2.5 : 3.0;
+
+    std::vector<Species>& sp = C.species;
+
+    // ── 1. Producers (autotrophs, tau≈0), spaced in body mass (Hutchinson) ────
+    const int n_prod = std::clamp(static_cast<int>(std::lround(1 + 5 * Rf)), 1, 8);
+    double pm = -5.0 + rng.range(0.0, 0.5);
+    for (int i = 0; i < n_prod; ++i) {
+        Species s;
+        s.t.tau = 0.001 * i;
+        s.t.m = std::min(-0.5, pm);
+        pm += 0.35 + rng.range(0.0, 1.1);
+        s.t.T_opt = rng.gaussian(biome.temp_c, 6.0);
+        s.t.T_tol = rng.log_uniform(4.0, 14.0);
+        s.t.omega = rng.log_uniform(0.3, 1.0);
+        s.t.kappa = std::exp(rng.gaussian(0.0, 0.25));
+        s.t.rho = clampd(rng.beta_like(0.75, 0.4), 0.0, 1.0); // producers r-ish
+        s.t.phi = rng.unit();
+        s.t.defense = rng.range(0.1, 0.5);
+        sp.push_back(s);
+    }
+    C.stats.n_producers = n_prod;
+
+    // ── 2. Radiate consumers into the niche space ─────────────────────────────
+    int guard = 0;
+    while (static_cast<int>(sp.size()) < S_max && guard++ < S_max * 10) {
+        const Species& parent = sp[static_cast<std::size_t>(rng.unit() * sp.size())];
+        const double dtau = rng.range(0.5, 1.3);
+        const double tau = parent.t.tau + dtau;
+        if (tau > L_max + 0.3) continue;
+
+        SpeciesTraits t = parent.t;
+        t.tau = tau;
+        t.dp = rng.range(ppmr_lo, ppmr_hi);
+        t.m = clampd(parent.t.m + t.dp + rng.gaussian(0.0, 0.3), -6.0, 5.0);
+        t.omega = rng.log_uniform(0.4, 1.1);
+        t.T_opt = parent.t.T_opt + rng.gaussian(0.0, 2.5);
+        t.T_tol = rng.log_uniform(4.0, 12.0);
+        t.kappa = std::exp(rng.gaussian(0.0, 0.25));
+        t.rho = clampd(0.55 - 0.10 * t.m + rng.gaussian(0.0, 0.15), 0.0, 1.0); // small -> r
+        t.phi = (rng.unit() < 0.7) ? parent.t.phi + rng.gaussian(0.0, 0.05) : rng.unit();
+        t.phi -= std::floor(t.phi);
+        t.defense = clampd(rng.beta_like(0.4, 0.3), 0.0, 1.0);
+
+        // Hutchinson spacing vs. same-level, same-climate, same-diel competitors.
+        bool spaced = true;
+        for (const Species& o : sp) {
+            if (std::abs(o.t.tau - t.tau) < 0.5 &&
+                std::abs(o.t.T_opt - t.T_opt) < (o.t.T_tol + t.T_tol) * 0.6 &&
+                std::abs(o.t.phi - t.phi) < 0.2 && std::abs(o.t.m - t.m) < 0.30) {
+                spaced = false; break;
+            }
+        }
+        if (!spaced) t.m += rng.sign() * 0.4; // repair: shift to the nearest free side
+
+        // Prey availability within the size window; else become a detritivore.
+        bool has_prey = false;
+        for (const Species& o : sp) {
+            const double dm = t.m - o.t.m;
+            if (dm > 0.2 && dm < t.dp + 2.0) { has_prey = true; break; }
+        }
+        Species s;
+        s.t = t;
+        if (!has_prey) { s.detritivore = true; s.t.tau = 1.0 + 0.2 * rng.unit(); }
+        sp.push_back(s);
+    }
+
+    const int S = static_cast<int>(sp.size());
+    for (Species& s : sp) s.mass_kg = std::pow(10.0, s.t.m);
+
+    // ── 3. Food-web wiring: continuous size-ratio x niche kernel ──────────────
+    std::vector<std::vector<double>> pref(static_cast<std::size_t>(S),
+                                          std::vector<double>(static_cast<std::size_t>(S), 0.0));
+    for (int i = 0; i < S; ++i) {
+        if (sp[static_cast<std::size_t>(i)].t.tau < 0.5 || sp[static_cast<std::size_t>(i)].detritivore)
+            continue; // producers/detritivores are not predators
+        const SpeciesTraits& pi = sp[static_cast<std::size_t>(i)].t;
+        double total = 0.0;
+        for (int j = 0; j < S; ++j) {
+            if (i == j) continue;
+            const SpeciesTraits& pj = sp[static_cast<std::size_t>(j)].t;
+            const double dm = pi.m - pj.m;
+            if (dm <= 0.1) continue; // predator must be larger
+            const double size = std::exp(-0.5 * sq((dm - pi.dp) / std::max(0.2, pi.omega)));
+            const double clim = std::exp(-0.5 * sq((pi.T_opt - pj.T_opt) / (pi.T_tol + pj.T_tol)));
+            const double diel = 0.5 + 0.5 * std::cos(kTwoPi * (pi.phi - pj.phi));
+            const double defp = std::pow(1.0 - pj.defense, 1.0 + 2.0 * pi.rho);
+            const double a = size * clim * diel * defp;
+            if (a > 0.02) { pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = a; total += a; }
+        }
+        if (total > 0.0)
+            for (int j = 0; j < S; ++j) pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] /= total;
+    }
+
+    // ── 4. Realize continuous trophic level from diet (emergent omnivory) ─────
+    for (int iter = 0; iter < 5; ++iter) {
+        std::vector<double> nt(static_cast<std::size_t>(S), 0.0);
+        for (int i = 0; i < S; ++i) {
+            if (sp[static_cast<std::size_t>(i)].t.tau < 0.5) { nt[static_cast<std::size_t>(i)] = 0.0; continue; }
+            if (sp[static_cast<std::size_t>(i)].detritivore) { nt[static_cast<std::size_t>(i)] = 1.0; continue; }
+            double acc = 0.0, w = 0.0;
+            for (int j = 0; j < S; ++j) {
+                const double p = pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+                if (p > 0.0) { acc += p * sp[static_cast<std::size_t>(j)].t.tau; w += p; }
+            }
+            nt[static_cast<std::size_t>(i)] = (w > 0.0) ? 1.0 + acc : 1.0;
+        }
+        for (int i = 0; i < S; ++i) sp[static_cast<std::size_t>(i)].t.tau = nt[static_cast<std::size_t>(i)];
+    }
+
+    // ── 5. Energy flux (top-down from NPP) + biomass (Kleiber/Damuth) ─────────
+    // Producers share NPP by climate fitness; the detritus pool feeds detritivores.
+    double fit_sum = 0.0;
+    std::vector<double> fit(static_cast<std::size_t>(S), 0.0);
+    for (int i = 0; i < S; ++i) {
+        if (sp[static_cast<std::size_t>(i)].t.tau < 0.5) {
+            fit[static_cast<std::size_t>(i)] =
+                std::exp(-0.5 * sq((sp[static_cast<std::size_t>(i)].t.T_opt - biome.temp_c) /
+                                   std::max(2.0, sp[static_cast<std::size_t>(i)].t.T_tol)));
+            fit_sum += fit[static_cast<std::size_t>(i)];
+        }
+    }
+    const double detritus = npp * 0.3;
+    int n_detr = 0;
+    for (const Species& s : sp) if (s.detritivore) ++n_detr;
+    // Order species by trophic level so suppliers are solved before consumers.
+    std::vector<int> order(static_cast<std::size_t>(S));
+    for (int i = 0; i < S; ++i) order[static_cast<std::size_t>(i)] = i;
+    std::sort(order.begin(), order.end(), [&](int a, int b) {
+        return sp[static_cast<std::size_t>(a)].t.tau < sp[static_cast<std::size_t>(b)].t.tau;
+    });
+    // Total incoming preference on each prey (to split its flux among predators).
+    std::vector<double> pressure(static_cast<std::size_t>(S), 0.0);
+    for (int i = 0; i < S; ++i)
+        for (int j = 0; j < S; ++j) pressure[static_cast<std::size_t>(j)] += pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+
+    for (int oi = 0; oi < S; ++oi) {
+        const int i = order[static_cast<std::size_t>(oi)];
+        Species& s = sp[static_cast<std::size_t>(i)];
+        if (s.t.tau < 0.5) {
+            s.flux = (fit_sum > 0.0) ? npp * fit[static_cast<std::size_t>(i)] / fit_sum : npp / std::max(1, S);
+        } else if (s.detritivore) {
+            s.flux = eff * detritus / std::max(1, n_detr);
+        } else {
+            double f = 0.0;
+            for (int j = 0; j < S; ++j) {
+                const double p = pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+                if (p > 0.0 && pressure[static_cast<std::size_t>(j)] > 0.0) {
+                    f += (p / pressure[static_cast<std::size_t>(j)]) * sp[static_cast<std::size_t>(j)].flux;
+                }
+            }
+            s.flux = eff * f;
+        }
+        const double Bind = s.t.kappa * kB0 * std::pow(s.mass_kg, astro::kKleiberExp); // per-individual
+        const double turnover = 0.5 + s.t.rho;
+        s.density = (Bind > 0.0) ? std::max(0.0, s.flux) / (Bind * turnover) : 0.0; // Damuth emerges
+        s.biomass = s.density * s.mass_kg;
+        s.population = s.density * biome.area_m2;
+        s.xeq = std::max(1.0e-9, s.biomass);
+        s.x = s.xeq;
+    }
+
+    // ── 6. Links list + interaction strengths + May stability margin ──────────
+    double mean = 0.0, mean2 = 0.0;
+    int L = 0;
+    for (int i = 0; i < S; ++i)
+        for (int j = 0; j < S; ++j) {
+            const double p = pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+            if (p <= 0.0) continue;
+            Link lk;
+            lk.pred = i; lk.prey = j; lk.pref = p;
+            lk.alpha = p * std::pow(sp[static_cast<std::size_t>(i)].mass_kg, -0.25);
+            C.links.push_back(lk);
+            mean += lk.alpha; mean2 += lk.alpha * lk.alpha; ++L;
+        }
+    const double Cc = (S > 0) ? static_cast<double>(L) / (static_cast<double>(S) * S) : 0.0;
+    double sigma = 0.0;
+    if (L > 1) { mean /= L; sigma = std::sqrt(std::max(0.0, mean2 / L - mean * mean)); }
+    C.stats.stability_margin = 1.0 - sigma * std::sqrt(static_cast<double>(S) * Cc);
+
+    // ── 7. Names + continuous role colors ─────────────────────────────────────
+    const phon::Language lang = phon::make_language(seed ^ 0x5EC0DEull);
+    for (int i = 0; i < S; ++i) {
+        Species& s = sp[static_cast<std::size_t>(i)];
+        s.name = phon::generate_name(lang, mix2(seed, static_cast<std::uint64_t>(i) + 1), 1.2f, 0.3f);
+        s.color = hsv8(role_hue(s.t.tau), 0.5 + 0.4 * s.t.defense, 0.92);
+    }
+
+    // ── 8. Stats (richness, levels, connectance, biomass, keystone) ───────────
+    C.stats.n_species = S;
+    C.stats.n_links = L;
+    C.stats.connectance = Cc;
+    double maxtau = 0.0, taus = 0.0;
+    int nc = 0;
+    double tot_bio = 0.0;
+    for (const Species& s : sp) {
+        maxtau = std::max(maxtau, s.t.tau);
+        if (s.t.tau >= 0.5) { taus += s.t.tau; ++nc; }
+        tot_bio += s.biomass;
+    }
+    C.stats.n_levels = maxtau;
+    C.stats.mean_chain = (nc > 0) ? taus / nc : 0.0;
+    C.stats.total_biomass = tot_bio;
+    // Keystone = species whose removal severs the most (weighted) diet dependence.
+    double best = -1.0;
+    for (int j = 0; j < S; ++j) {
+        double impact = 0.0;
+        for (int i = 0; i < S; ++i)
+            impact += pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] * sp[static_cast<std::size_t>(i)].biomass;
+        impact /= (sp[static_cast<std::size_t>(j)].biomass + 1.0e-12); // outsized effect vs own biomass
+        if (impact > best) { best = impact; C.stats.keystone = j; }
+    }
+    return C;
+}
+
+void step_community(Community& C, double dt) {
+    const int S = static_cast<int>(C.species.size());
+    if (S == 0) return;
+    dt = std::min(dt, 0.05);
+    std::vector<double> dx(static_cast<std::size_t>(S), 0.0);
+
+    for (int i = 0; i < S; ++i) {
+        Species& s = C.species[static_cast<std::size_t>(i)];
+        const double r = 0.6 * std::pow(std::max(1.0e-6, s.mass_kg), -0.25); // allometric rate
+        if (s.t.tau < 0.5) {
+            // Logistic producer: grows toward its equilibrium carrying capacity.
+            dx[static_cast<std::size_t>(i)] += r * s.x * (1.0 - s.x / std::max(1.0e-9, s.xeq));
+        } else {
+            // Consumer: damped toward equilibrium with self-limitation (stable).
+            dx[static_cast<std::size_t>(i)] += r * s.x * (1.0 - s.x / std::max(1.0e-9, s.xeq))
+                                               - 0.05 * r * (s.x - s.xeq);
+        }
+    }
+    // Predation coupling produces the predator-lags-prey breathing, bounded by the
+    // self-limitation above.
+    for (const Link& lk : C.links) {
+        const double flow = 0.15 * lk.alpha * C.species[static_cast<std::size_t>(lk.pred)].x *
+                            C.species[static_cast<std::size_t>(lk.prey)].x /
+                            std::max(1.0e-9, C.species[static_cast<std::size_t>(lk.prey)].xeq);
+        dx[static_cast<std::size_t>(lk.prey)] -= flow;
+        dx[static_cast<std::size_t>(lk.pred)] += 0.1 * flow;
+    }
+    for (int i = 0; i < S; ++i) {
+        Species& s = C.species[static_cast<std::size_t>(i)];
+        s.x = std::max(1.0e-6 * s.xeq, s.x + dx[static_cast<std::size_t>(i)] * dt);
+    }
+}
+
+} // namespace eco
+} // namespace cosmos
