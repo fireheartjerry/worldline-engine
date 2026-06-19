@@ -2,6 +2,7 @@
 
 #include "cosmos/Astrobio.hpp"
 #include "cosmos/Phonology.hpp"
+#include "cosmos/Phylogeny.hpp"
 #include "cosmos/Spectrum.hpp"
 
 #include <algorithm>
@@ -50,7 +51,7 @@ double role_hue(double tau) {
 }
 
 Community generate_community(std::uint64_t seed, const BiomeParams& biome,
-                            const phon::Language* lang) {
+                            const phon::Language* lang, const phylo::CladePool* pool) {
     Community C;
     C.biome = biome;
     Stream rng(seed, 0xEC051Bull);
@@ -264,12 +265,24 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome,
 
     // ── 7. Names + continuous role colors ─────────────────────────────────────
     // Lineage language (so creatures sound like their world) or a seed-derived
-    // fallback for direct callers. The per-species mix2 keeps intra-community
-    // variety either way.
+    // fallback for direct callers. If a phylogeny pool is supplied, each species
+    // is assigned to a clade tip and named from that clade's sub-language, so a
+    // planet's biota splits into related clades (sister species sound alike). The
+    // per-species mix2 keeps intra-clade variety. Trait-relatedness is layered on
+    // separately; here we realize the clade-coherent naming structure.
     const phon::Language base = lang ? *lang : phon::make_language(seed ^ 0x5EC0DEull);
+    const bool use_pool = (pool != nullptr && pool->n_tips > 0 &&
+                           !pool->lang.empty() && !pool->tip_node.empty());
     for (int i = 0; i < S; ++i) {
         Species& s = sp[static_cast<std::size_t>(i)];
-        s.name = phon::generate_name(base, mix2(seed, static_cast<std::uint64_t>(i) + 1), 1.2f, 0.3f);
+        const phon::Language* nl = &base;
+        if (use_pool) {
+            const int tip = i % pool->n_tips;
+            const int node = pool->tip_node[static_cast<std::size_t>(tip)];
+            if (node >= 0 && node < static_cast<int>(pool->lang.size()))
+                nl = &pool->lang[static_cast<std::size_t>(node)];
+        }
+        s.name = phon::generate_name(*nl, mix2(seed, static_cast<std::uint64_t>(i) + 1), 1.2f, 0.3f);
         s.color = hsv8(role_hue(s.t.tau), 0.5 + 0.4 * s.t.defense, 0.92);
     }
 

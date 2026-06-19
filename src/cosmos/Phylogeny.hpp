@@ -94,9 +94,11 @@ inline double phylo_distance(const CladePool& cp, int tipA, int tipB) {
 
 inline int tip_count(const CladePool& cp) { return cp.n_tips; }
 
-// Build a deterministic ultrametric birth-death clade pool.
+// Build a deterministic ultrametric birth-death clade pool. `root_lang`, if
+// given, seeds the clade family from an existing lineage language (so a planet's
+// clades descend from the world's phonetic family); nullptr uses make_language.
 inline CladePool build_clade_pool(std::uint64_t seed, double biosphere_age_gyr,
-                                  int target_tips) {
+                                  int target_tips, const phon::Language* root_lang = nullptr) {
     CladePool cp;
 
     // --- Standing extant tip count from the closed-form logistic curve --------
@@ -189,7 +191,7 @@ inline CladePool build_clade_pool(std::uint64_t seed, double biosphere_age_gyr,
     cp.centroid.resize(static_cast<std::size_t>(cp.n_nodes));
 
     // Root: a reasonable random point in trait space and the lineage language.
-    cp.lang[0] = phon::make_language(seed);
+    cp.lang[0] = root_lang ? *root_lang : phon::make_language(seed);
     {
         Stream rs(seed, 0x5EED00ull);
         eco::SpeciesTraits root;

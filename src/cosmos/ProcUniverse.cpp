@@ -5,6 +5,7 @@
 #include "cosmos/Ecosystem.hpp"
 #include "cosmos/Organism.hpp"
 #include "cosmos/Phonology.hpp"
+#include "cosmos/Phylogeny.hpp"
 
 #include <array>
 #include <cctype>
@@ -360,9 +361,18 @@ eco::Community ecosystem_community(const ProcNode& eco_node) {
     const astro::Biome biome = astro::biome_for(b.temp_c, b.precip_mm);
     b.npp = astro::npp_for(biome);
     b.aquatic = (biome == astro::Biome::Ocean);
-    // Pass the ecosystem's lineage language so species names share the world's
-    // phonetic family (and creature preview == creature full node).
-    return eco::generate_community(eco_node.seed, b, &eco_node.language);
+    // Build a deterministic phylogeny rooted in the ecosystem's lineage language,
+    // so the planet's biota splits into related clades (sister species share a
+    // sub-language). Biosphere age + clade richness are derived from the seed.
+    Rng pr(salt(eco_node.seed, 53));
+    const double age_gyr = pr.range(1.0, 11.0);
+    const int target_tips = std::clamp(
+        static_cast<int>(std::lround(4 + 30 * astro::richness_factor(b.npp))), 3, 40);
+    const phylo::CladePool pool =
+        phylo::build_clade_pool(eco_node.seed, age_gyr, target_tips, &eco_node.language);
+    // Pass the lineage language + clade pool so names share the world's phonetic
+    // family AND show clade structure (and creature preview == creature full node).
+    return eco::generate_community(eco_node.seed, b, &eco_node.language, &pool);
 }
 
 void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent, const ProcUniverse* self) {

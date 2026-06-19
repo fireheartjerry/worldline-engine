@@ -16,6 +16,8 @@
 #include <vector>
 
 namespace cosmos {
+namespace phylo { struct CladePool; } // fwd-decl (defined in Phylogeny.hpp; used by .cpp)
+
 namespace eco {
 
 struct BiomeParams {
@@ -96,7 +98,8 @@ struct Community {
 // phonetic family; nullptr falls back to a seed-derived language (used by direct
 // callers / tests, byte-identical to the pre-lineage behavior).
 Community generate_community(std::uint64_t seed, const BiomeParams& biome,
-                            const phon::Language* lang = nullptr);
+                            const phon::Language* lang = nullptr,
+                            const phylo::CladePool* pool = nullptr);
 
 // Advance live population dynamics by dt (bounded, damped — never diverges).
 // `season_factor` modulates producer carrying capacity for seasonal forcing
