@@ -198,6 +198,21 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
     Rydberg/Bohr energy and size scales, and whether the CHNOPS elements of life
     can exist — surfaced live in the navigator's inspector as an "ATOMIC ASSEMBLY"
     readout on the atomic tier
+  - `cosmos/MultiElectronAtoms.hpp` — Slater screening / effective nuclear charge,
+    Hund's rules for ground-state terms, term multiplicity, and the Aufbau
+    exceptions (Cr, Cu, …)
+  - `cosmos/LightMatter.hpp` — the Einstein A/B coefficients, the photoelectric
+    effect, Rabi flopping, Beer–Lambert absorption, and the laser population-
+    inversion / gain condition
+  - `cosmos/FineStructure.hpp` — Dirac fine structure (spin-orbit + relativistic +
+    Darwin), the 21 cm hyperfine line, the QED Lamb shift, and the
+    gross ≫ fine ≫ {Lamb, hyperfine} hierarchy
+  - `cosmos/ExoticAtoms.hpp` — reduced-mass scaling, positronium, muonic hydrogen,
+    and the Rydberg-atom n-power scaling laws (radius ∼ n², lifetime ∼ n³,
+    polarizability ∼ n⁷)
+  - `cosmos/AtomicCollisions.hpp` — geometric and Coulomb cross sections, mean free
+    path and collision frequency, Bethe stopping power, electron-impact
+    thresholds, and radiative recombination
 - a deterministic, lazily-generated, LRU-cached procedural universe you can
   descend into by zooming — galaxy → star system → planet → ecosystem → creature
   — with bounded work and memory (same place always regenerates identically)

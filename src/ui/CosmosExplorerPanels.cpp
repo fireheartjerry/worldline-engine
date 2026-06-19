@@ -4,6 +4,8 @@
 #include "app/WorldlineStorage.hpp"
 #include "cosmos/Analysis.hpp"
 #include "cosmos/AtomicGenesis.hpp"
+#include "cosmos/ExoticAtoms.hpp"
+#include "cosmos/FineStructure.hpp"
 #include "cosmos/FissionPhysics.hpp"
 #include "cosmos/LatticeQCD.hpp"
 #include "cosmos/NuclearMatter.hpp"
@@ -413,6 +415,14 @@ void draw_inspector(const CosmosState &cosmos, Rectangle rect, float scale) {
         draw_text(a1, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
         y += 15.0f * scale;
         draw_text(a2, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
+        y += 15.0f * scale;
+        // Spectroscopic fingerprints: the 21 cm hyperfine line, the QED Lamb
+        // shift, and positronium's ground-state binding.
+        const std::string a3 = "21cm " + fmt_fixed(fine::k21cm_frequency_hz / 1e6, 0) +
+                               " MHz   Lamb " + fmt_fixed(fine::kLambShift_hz / 1e6, 0) +
+                               " MHz   Ps " + fmt_fixed(exotic::positronium_binding_ev(), 1) +
+                               " eV";
+        draw_text(a3, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
         y += 20.0f * scale;
     }
 
