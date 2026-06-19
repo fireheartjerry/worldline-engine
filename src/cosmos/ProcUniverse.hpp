@@ -54,6 +54,9 @@ struct ChildRef {
     float size = 0.5f;    // preview size, [0, 1]
     Color8 color;
     std::string name;
+    int subtype = 0;          // star class / planet type / biome / trophic role
+    double orbit_au = 0.0;    // planet orbital distance (AU), parent-assigned
+    bool habitable = false;   // planet preview: lies in the habitable zone & rocky
 };
 
 // A fully generated node: its own attributes plus references to its children.
@@ -65,6 +68,14 @@ struct ProcNode {
     Color8 color;
     std::vector<std::pair<std::string, std::string>> facts; // inspector key/value stats
     std::vector<ChildRef> children;
+
+    // Inter-level context (set per kind; propagates parent -> child generation).
+    int    subtype = 0;          // star class / planet type / biome
+    double luminosity = 0.0;     // StarSystem: host-star luminosity (L_sun)
+    double orbit_au = 0.0;       // Planet: orbital distance (AU)
+    double temperature_c = 0.0;  // Planet/Ecosystem: surface temperature
+    double precip_mm = 0.0;      // Planet/Ecosystem: precipitation
+    bool   habitable = false;    // Planet: hosts life
 };
 
 // Deterministically derive a child's seed from a parent seed and child index.
@@ -77,8 +88,10 @@ public:
     std::uint64_t root_seed() const { return root_seed_; }
 
     // Generate-or-fetch a node. The result is cached (LRU); revisiting is cheap,
-    // and an evicted node regenerates identically.
-    const ProcNode& node(std::uint64_t seed, NodeKind kind);
+    // and an evicted node regenerates identically. `parent` supplies inter-level
+    // context (e.g. a planet needs its star's luminosity + its own orbit); it is
+    // deterministic given the child seed, so caching by seed stays valid.
+    const ProcNode& node(std::uint64_t seed, NodeKind kind, const ProcNode* parent = nullptr);
     const ProcNode& root() { return node(root_seed_, NodeKind::Universe); }
 
     std::size_t cache_size() const { return cache_.size(); }
@@ -94,7 +107,7 @@ private:
         std::list<std::uint64_t>::iterator lru_it;
     };
 
-    ProcNode generate(std::uint64_t seed, NodeKind kind) const;
+    ProcNode generate(std::uint64_t seed, NodeKind kind, const ProcNode* parent) const;
     void touch(std::uint64_t key);
     void trim();
 

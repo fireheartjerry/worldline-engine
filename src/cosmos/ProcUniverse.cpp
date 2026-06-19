@@ -1,8 +1,11 @@
 #include "cosmos/ProcUniverse.hpp"
 
+#include "cosmos/Astrobio.hpp"
+
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 
 namespace cosmos {
 
@@ -71,18 +74,17 @@ std::string gen_name(Rng& r, int min_syl, int max_syl) {
 int galaxy_morph(std::uint64_t seed) { return static_cast<int>(salt(seed, 11) % 3); } // 0 spiral,1 ellip,2 irr
 const char* galaxy_morph_name(int m) { return m == 0 ? "spiral" : (m == 1 ? "elliptical" : "irregular"); }
 
-int star_class(std::uint64_t seed) {
-    // Weighted toward cooler stars, like the real IMF tail.
-    static const int table[] = {6, 6, 6, 6, 5, 5, 5, 4, 4, 3, 2, 1, 0}; // index -> O..M (0..6)
-    return table[salt(seed, 12) % (sizeof(table) / sizeof(table[0]))];
+// Star class chosen by the real stellar IMF/frequency (M dwarfs dominate).
+astro::StarClass star_class_for(std::uint64_t seed) {
+    return astro::pick_star_class(static_cast<double>(salt(seed, 12) % 1000000ull) / 1000000.0);
 }
-const char* star_class_name(int c) {
-    static const char* n[] = {"O", "B", "A", "F", "G", "K", "M"};
-    return n[c % 7];
+Color8 star_class_color(astro::StarClass c) {
+    return hsv8(astro::star_info(c).hue, 0.40, 1.0);
 }
-Color8 star_class_color(int c) {
-    static const double hue[] = {0.62, 0.60, 0.58, 0.15, 0.12, 0.07, 0.02};
-    return hsv8(hue[c % 7], 0.45, 1.0);
+std::string fmt_g(double v, int prec) {
+    char buf[48];
+    std::snprintf(buf, sizeof(buf), "%.*g", prec, v);
+    return buf;
 }
 
 int planet_type(std::uint64_t seed) { return static_cast<int>(salt(seed, 13) % 6); }
@@ -95,12 +97,6 @@ Color8 planet_type_color(int t) {
     static const double sat[] = {0.45, 0.65, 0.55, 0.30, 0.85, 0.55};
     return hsv8(hue[t % 6], sat[t % 6], 0.92);
 }
-bool planet_has_life(std::uint64_t seed) {
-    const int t = planet_type(seed);
-    const double base = (t == 0 || t == 1) ? 0.55 : (t == 5 ? 0.12 : 0.22); // rocky/ocean likelier
-    return (static_cast<double>(salt(seed, 14) % 1000) / 1000.0) < base;
-}
-
 int creature_role(std::uint64_t seed) {
     // 0 producer, 1 herbivore, 2 carnivore — a rough trophic pyramid.
     const std::uint64_t v = salt(seed, 15) % 100;
@@ -135,7 +131,7 @@ Identity identity_for(NodeKind kind, std::uint64_t seed) {
         break;
     case NodeKind::StarSystem:
         id.name = gen_name(r, 1, 2) + "-" + std::to_string(r.irange(1, 999));
-        id.color = star_class_color(star_class(seed));
+        id.color = star_class_color(star_class_for(seed));
         id.size = static_cast<float>(r.range(0.45, 0.85));
         break;
     case NodeKind::Planet:
@@ -221,18 +217,34 @@ void gen_galaxy(ProcNode& n, Rng& r) {
 }
 
 void gen_starsystem(ProcNode& n, Rng& r) {
-    const int sclass = star_class(n.seed);
+    const astro::StarClass sclass = star_class_for(n.seed);
+    const astro::StarInfo& star = astro::star_info(sclass);
+    const double lum = astro::star_luminosity(star.mass_sun);
+    const astro::HabitableZone hz = astro::habitable_zone(lum);
+    n.subtype = static_cast<int>(sclass);
+    n.luminosity = lum;
+
     const int count = r.irange(2, 8);
-    n.descriptor = std::string("A ") + star_class_name(sclass) + "-class star with " +
+    n.descriptor = std::string("A ") + star.name + "-class star (" +
+                   fmt_g(star.lifetime_gyr, 2) + " Gyr lifetime) with " +
                    std::to_string(count) + " planets.";
-    add_fact(n, "Star class", star_class_name(sclass));
+    add_fact(n, "Star class", std::string(star.name) + " (" + fmt_g(star.temp_k, 4) + " K)");
+    add_fact(n, "Mass", fmt_g(star.mass_sun, 2) + " Msun");
+    add_fact(n, "Luminosity", fmt_g(lum, 2) + " Lsun");
+    add_fact(n, "Lifetime", fmt_g(star.lifetime_gyr, 2) + " Gyr");
+    add_fact(n, "Habitable zone", fmt_g(hz.inner_au, 2) + "-" + fmt_g(hz.outer_au, 2) + " AU");
     add_fact(n, "Planets", std::to_string(count));
-    add_fact(n, "Habitable zone", std::to_string(r.irange(1, count)) + " AU");
+
+    // Planets on Titius-Bode-ish rings, scaled by the star so HZ is meaningful.
+    const double base_au = 0.25 * std::sqrt(std::max(0.02, lum));
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
         const Identity id = identity_for(NodeKind::Planet, cs);
-        const double orbit = 0.18 + i * (0.80 / std::max(1, count));
+        const double au = base_au * std::pow(1.6, i) * r.range(0.9, 1.1);
+        const bool rocky = planet_type(cs) == 0 || planet_type(cs) == 1 || planet_type(cs) == 5;
+        const bool in_hz = astro::in_habitable_zone(au, lum);
         const double phase = r.f01() * kTau;
+        const double orbit = 0.18 + i * (0.80 / std::max(1, count)); // normalized layout ring
         ChildRef c;
         c.seed = cs; c.kind = NodeKind::Planet;
         c.orbit = static_cast<float>(orbit);
@@ -240,20 +252,72 @@ void gen_starsystem(ProcNode& n, Rng& r) {
         c.x = static_cast<float>(std::cos(phase) * orbit);
         c.y = static_cast<float>(std::sin(phase) * orbit);
         c.size = id.size; c.color = id.color; c.name = id.name;
+        c.orbit_au = au;
+        c.habitable = rocky && in_hz && star.habitability > 0.3; // preview hint (ring marker)
         n.children.push_back(std::move(c));
     }
 }
 
-void gen_planet(ProcNode& n, Rng& r) {
+// Derive a planet's climate + whether it actually hosts life, from its host
+// star (parent) and its own orbit. Stacked gates leave most worlds barren.
+void gen_planet(ProcNode& n, Rng& r, const ProcNode* parent) {
     const int type = planet_type(n.seed);
-    const bool life = planet_has_life(n.seed);
-    const int count = life ? r.irange(3, 6) : r.irange(2, 3);
-    n.descriptor = std::string("A ") + planet_type_name(type) + " world" +
-                   (life ? ", teeming with life." : ", barren but for its biomes.");
+    n.subtype = type;
+
+    double lum = 1.0, orbit_au = 1.0, star_life = 10.0, star_hab = 0.9;
+    if (parent != nullptr && parent->kind == NodeKind::StarSystem) {
+        lum = parent->luminosity > 0.0 ? parent->luminosity : 1.0;
+        const astro::StarInfo& star = astro::star_info(
+            static_cast<astro::StarClass>(std::clamp(parent->subtype, 0, 6)));
+        star_life = star.lifetime_gyr;
+        star_hab = star.habitability;
+        for (const ChildRef& c : parent->children) {
+            if (c.seed == n.seed) { orbit_au = c.orbit_au; break; }
+        }
+    }
+    n.orbit_au = orbit_au;
+
+    const astro::HabitableZone hz = astro::habitable_zone(lum);
+    const bool in_hz = orbit_au >= hz.inner_au && orbit_au <= hz.outer_au;
+    const bool rocky = (type == 0 || type == 1 || type == 5); // rocky/ocean/desert
+    const double mass_earth = rocky ? r.range(0.3, 4.5) : r.range(10.0, 300.0);
+
+    // Surface temperature from flux (inner edge ~ +50C, outer edge ~ -40C).
+    if (in_hz) {
+        const double f = (orbit_au - hz.inner_au) / std::max(1.0e-6, hz.outer_au - hz.inner_au);
+        n.temperature_c = 50.0 - 90.0 * f + r.range(-8.0, 8.0);
+    } else {
+        n.temperature_c = (orbit_au < hz.inner_au) ? r.range(120.0, 460.0) : r.range(-160.0, -45.0);
+    }
+    n.precip_mm = (type == 1) ? r.range(1500.0, 4000.0)            // ocean world: wet
+                : in_hz       ? r.range(150.0, 3000.0)
+                              : r.range(0.0, 50.0);
+
+    // Life gate (stacked, independent → rare): star long-lived enough for complex
+    // life, planet in the HZ, rocky, right mass for atmosphere/dynamo, and a final
+    // complex-life roll weighted by stellar suitability.
+    const bool gate = (star_life >= 4.0) && in_hz && rocky &&
+                      (mass_earth >= 0.3 && mass_earth <= 5.0);
+    const double life_roll = static_cast<double>(salt(n.seed, 31) % 1000) / 1000.0;
+    n.habitable = gate && (life_roll < 0.55 * star_hab);
+
     add_fact(n, "Type", planet_type_name(type));
-    add_fact(n, "Biomes", std::to_string(count));
-    add_fact(n, "Life", life ? "present" : "none detected");
-    add_fact(n, "Gravity", std::to_string(r.irange(3, 25)) + ".0 m/s2");
+    add_fact(n, "Orbit", fmt_g(orbit_au, 2) + " AU" + (in_hz ? " (in HZ)" : ""));
+    add_fact(n, "Mass", fmt_g(mass_earth, 2) + " Mearth");
+    add_fact(n, "Surface temp", fmt_g(n.temperature_c, 3) + " C");
+    add_fact(n, "Life", n.habitable ? "present" : (gate ? "absent (chance)" : "uninhabitable"));
+
+    if (!n.habitable) {
+        n.descriptor = std::string("A ") + planet_type_name(type) + " world — " +
+                       (in_hz ? "in the habitable zone but lifeless." : "outside the habitable zone, barren.");
+        return; // barren: a dead-end (no ecosystems to descend into)
+    }
+
+    // Living world: biomes (ecosystems) seeded by climate, count by richness.
+    const int count = 2 + static_cast<int>(astro::richness_factor(
+                          astro::npp_for(astro::biome_for(n.temperature_c, n.precip_mm))) * 5.0 + 0.5);
+    n.descriptor = std::string("A living ") + planet_type_name(type) + " world with " +
+                   std::to_string(count) + " biomes.";
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
         const Identity id = identity_for(NodeKind::Ecosystem, cs);
@@ -268,26 +332,45 @@ void gen_planet(ProcNode& n, Rng& r) {
     }
 }
 
-void gen_ecosystem(ProcNode& n, Rng& r) {
-    const int count = r.irange(12, 36);
+void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent) {
+    // Biome from the planet's climate, perturbed per-ecosystem (latitude band).
+    double temp = 18.0, precip = 1200.0;
+    if (parent != nullptr && parent->kind == NodeKind::Planet) {
+        temp = parent->temperature_c + r.range(-12.0, 12.0);
+        precip = std::max(0.0, parent->precip_mm * r.range(0.5, 1.4));
+    }
+    const astro::Biome biome = astro::biome_for(temp, precip);
+    const double npp = astro::npp_for(biome);
+    n.subtype = static_cast<int>(biome);
+    n.color = hsv8(astro::biome_hue(biome), 0.6, 0.85);
+
+    // Species richness scales with productivity (species-energy hypothesis).
+    const int count = std::clamp(
+        6 + static_cast<int>(astro::richness_factor(npp) * 30.0 + 0.5), 6, 40);
+    n.descriptor = std::string(astro::biome_name(biome)) + " — " + std::to_string(count) +
+                   " species, NPP " + fmt_g(npp, 2) + " g/m2/yr.";
+
     int producers = 0, herbivores = 0, carnivores = 0;
-    n.descriptor = "A living biome of " + std::to_string(count) + " interacting species.";
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
         const Identity id = identity_for(NodeKind::Creature, cs);
         const int role = creature_role(cs);
         if (role == 0) ++producers; else if (role == 1) ++herbivores; else ++carnivores;
-        // Cluster a little by role so the food web reads spatially.
-        const double ang = r.f01() * kTau;
+        // Cluster by trophic role so the food web reads spatially.
         const double rad = std::sqrt(r.f01()) * 0.92;
+        const double ang = r.f01() * kTau;
         ChildRef c;
         c.seed = cs; c.kind = NodeKind::Creature;
         c.x = static_cast<float>(std::cos(ang) * rad);
         c.y = static_cast<float>(std::sin(ang) * rad);
         c.phase = static_cast<float>(r.f01() * kTau);
         c.size = id.size; c.color = id.color; c.name = id.name;
+        c.subtype = role;
         n.children.push_back(std::move(c));
     }
+    add_fact(n, "Biome", astro::biome_name(biome));
+    add_fact(n, "Temperature", fmt_g(temp, 3) + " C");
+    add_fact(n, "NPP", fmt_g(npp, 2) + " g/m2/yr");
     add_fact(n, "Species", std::to_string(count));
     add_fact(n, "Producers", std::to_string(producers));
     add_fact(n, "Herbivores", std::to_string(herbivores));
@@ -296,11 +379,24 @@ void gen_ecosystem(ProcNode& n, Rng& r) {
 
 void gen_creature(ProcNode& n, Rng& r) {
     const int role = creature_role(n.seed);
-    n.descriptor = std::string("A ") + creature_role_name(role) + " of this biome.";
-    add_fact(n, "Diet", creature_role_name(role));
-    add_fact(n, "Size", std::to_string(r.irange(1, 900)) + " cm");
-    add_fact(n, "Speed", std::to_string(r.irange(1, 80)) + " km/h");
-    add_fact(n, "Population", std::to_string(r.irange(1, 9)) + "e" + std::to_string(r.irange(2, 9)));
+    // Body mass by trophic level (producers small, carnivores large), then
+    // metabolism (Kleiber M^0.75) and abundance (Damuth M^-0.75).
+    const double base_kg = (role == 0) ? r.range(1.0e-4, 1.0)
+                         : (role == 1) ? r.range(1.0, 300.0)
+                                       : r.range(10.0, 1500.0);
+    const double metabolism = std::pow(base_kg, astro::kKleiberExp);   // relative
+    const double abundance  = std::pow(std::max(1.0e-6, base_kg), astro::kDamuthExp);
+    const int speed = static_cast<int>((role == 0 ? 0.0 : 5.0 + 60.0 * r.f01()) + 0.5);
+
+    n.subtype = role;
+    n.descriptor = std::string("A ") + creature_role_name(role) +
+                   ((role == 0) ? " — the base of the food web." : " in this biome's food web.");
+    add_fact(n, "Trophic role", creature_role_name(role));
+    add_fact(n, "Body mass", (base_kg < 1.0 ? fmt_g(base_kg * 1000.0, 2) + " g"
+                                            : fmt_g(base_kg, 2) + " kg"));
+    add_fact(n, "Metabolism", fmt_g(metabolism, 2) + " (rel.)");
+    add_fact(n, "Abundance", fmt_g(abundance, 2) + " (rel.)");
+    add_fact(n, "Speed", std::to_string(speed) + " km/h");
     // Leaf: no children.
 }
 
@@ -357,7 +453,7 @@ void ProcUniverse::reseed(std::uint64_t root_seed) {
     lru_.clear();
 }
 
-ProcNode ProcUniverse::generate(std::uint64_t seed, NodeKind kind) const {
+ProcNode ProcUniverse::generate(std::uint64_t seed, NodeKind kind, const ProcNode* parent) const {
     ProcNode n;
     n.seed = seed;
     n.kind = kind;
@@ -369,8 +465,8 @@ ProcNode ProcUniverse::generate(std::uint64_t seed, NodeKind kind) const {
     case NodeKind::Universe:   gen_universe(n, r); break;
     case NodeKind::Galaxy:     gen_galaxy(n, r); break;
     case NodeKind::StarSystem: gen_starsystem(n, r); break;
-    case NodeKind::Planet:     gen_planet(n, r); break;
-    case NodeKind::Ecosystem:  gen_ecosystem(n, r); break;
+    case NodeKind::Planet:     gen_planet(n, r, parent); break;
+    case NodeKind::Ecosystem:  gen_ecosystem(n, r, parent); break;
     case NodeKind::Creature:   gen_creature(n, r); break;
     default: break;
     }
@@ -393,14 +489,14 @@ void ProcUniverse::trim() {
     }
 }
 
-const ProcNode& ProcUniverse::node(std::uint64_t seed, NodeKind kind) {
+const ProcNode& ProcUniverse::node(std::uint64_t seed, NodeKind kind, const ProcNode* parent) {
     auto it = cache_.find(seed);
     if (it != cache_.end()) {
         touch(seed);
         return it->second.node;
     }
     Entry e;
-    e.node = generate(seed, kind);
+    e.node = generate(seed, kind, parent);
     lru_.push_front(seed);
     e.lru_it = lru_.begin();
     auto res = cache_.emplace(seed, std::move(e));

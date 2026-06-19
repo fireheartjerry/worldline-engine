@@ -86,7 +86,10 @@ void descent_push(CosmosState& cosmos, int child_index) {
         return;
     }
     const ChildRef child = d.focus().children[static_cast<std::size_t>(child_index)]; // copy
-    ProcNode cn = d.universe->node(child.seed, child.kind); // copy (engine ref may move)
+    // Pass the current focus as parent (stable copy in the path) so context-aware
+    // generation (planet habitability, ecosystem climate) sees its star/planet.
+    const ProcNode* parent = &d.path.back();
+    ProcNode cn = d.universe->node(child.seed, child.kind, parent); // copy (engine ref may move)
     d.path.push_back(std::move(cn));
     d.hovered_child = -1;
     d.camera.target_zoom = d.camera.zoom = kZoomMin * 1.05;
@@ -300,6 +303,21 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     const unsigned char fade = (animated && d.transition > 0.3f) ? 30 : 255;
     renderer.accumulate_field(sprites, stage, fade);
     renderer.draw_field(sprites, stage);
+
+    // Mark habitable (living) worlds in a star system with a green ring.
+    if (f.kind == NodeKind::StarSystem) {
+        BeginScissorMode(static_cast<int>(stage.x), static_cast<int>(stage.y),
+                         static_cast<int>(stage.width), static_cast<int>(stage.height));
+        for (int i = 0; i < n; ++i) {
+            if (!f.children[static_cast<std::size_t>(i)].habitable) continue;
+            const Vector2 p = child_screen(cosmos, i, stage, t);
+            DrawCircleLines(static_cast<int>(p.x), static_cast<int>(p.y), 9.0f * ui,
+                            with_alpha(WL::PLASMA_GREEN, 230));
+            DrawCircleLines(static_cast<int>(p.x), static_cast<int>(p.y), 12.0f * ui,
+                            with_alpha(WL::PLASMA_GREEN, 90));
+        }
+        EndScissorMode();
+    }
 
     // Boundary flash ring.
     if (cam.flash > 0.001f) {

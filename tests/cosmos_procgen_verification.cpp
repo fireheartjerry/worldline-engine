@@ -38,9 +38,11 @@ bool nodes_equal(const ProcNode& a, const ProcNode& b) {
     return true;
 }
 
-// Walk the whole hierarchy down to creatures, checking structure invariants.
-void walk(ProcUniverse& uni, std::uint64_t seed, NodeKind kind, int depth, int& visited) {
-    const ProcNode n = uni.node(seed, kind); // copy (cache may move underneath)
+// Walk the hierarchy down, checking structure invariants. Passes the parent so
+// context-aware generation (planet habitability, ecosystem biome) is correct.
+void walk(ProcUniverse& uni, std::uint64_t seed, NodeKind kind, const ProcNode* parent,
+          int depth, int& visited) {
+    const ProcNode n = uni.node(seed, kind, parent); // copy (cache may move underneath)
     ++visited;
 
     require(!n.name.empty(), "every node must have a name");
@@ -50,7 +52,12 @@ void walk(ProcUniverse& uni, std::uint64_t seed, NodeKind kind, int depth, int& 
         require(n.children.empty(), "creature (leaf) must have no children");
         return;
     }
-    require(!n.children.empty(), std::string(node_kind_name(kind)) + " must have children");
+    // A barren planet legitimately has no children (a dead-end you can't enter).
+    if (n.children.empty()) {
+        require(kind == NodeKind::Planet,
+                std::string(node_kind_name(kind)) + " must have children");
+        return;
+    }
 
     const NodeKind ck = node_child_kind(kind);
     for (const ChildRef& c : n.children) {
@@ -60,14 +67,13 @@ void walk(ProcUniverse& uni, std::uint64_t seed, NodeKind kind, int depth, int& 
         require(!c.name.empty(), "child preview must carry a name");
     }
 
-    // Descend into the first child of each level (one path to the leaf), and
-    // verify the preview identity matches the full node identity.
+    // Descend into the first child; the preview NAME must match the full node
+    // (names are seed-only; colors are now context-dependent so are not compared).
     if (depth < 5) {
         const ChildRef& first = n.children.front();
-        const ProcNode child = uni.node(first.seed, first.kind);
+        const ProcNode child = uni.node(first.seed, first.kind, &n);
         require(child.name == first.name, "child preview name must match its full node name");
-        require(color_eq(child.color, first.color), "child preview color must match its full node color");
-        walk(uni, first.seed, first.kind, depth + 1, visited);
+        walk(uni, first.seed, first.kind, &n, depth + 1, visited);
     }
 }
 
@@ -97,12 +103,53 @@ int main() {
         require(!nodes_equal(ra, rb), "different seeds should give different universes");
     }
 
-    // --- Structure + preview/full consistency over a full descent path --------
+    // --- Structure + preview/full consistency over a descent path -------------
     {
         ProcUniverse uni(0x1234567ull);
         int visited = 0;
-        walk(uni, uni.root_seed(), NodeKind::Universe, 0, visited);
-        require(visited >= 6, "should visit at least one node per level (6 levels)");
+        walk(uni, uni.root_seed(), NodeKind::Universe, nullptr, 0, visited);
+        // Universe -> Galaxy -> StarSystem -> Planet is always reachable; the
+        // first planet may be barren (a valid dead-end), so we require >= 4.
+        require(visited >= 4, "should visit at least universe..planet");
+    }
+
+    // --- Life is gated: it appears somewhere, most planets are barren, and a
+    //     living world descends into ecosystems -> creatures ------------------
+    {
+        ProcUniverse uni(0x5EED1ABEull);
+        const ProcNode universe = uni.root();
+        int planets = 0, living = 0;
+        bool descended_life = false;
+        for (const ChildRef& gref : universe.children) {
+            const ProcNode galaxy = uni.node(gref.seed, gref.kind, &universe);
+            for (std::size_t s = 0; s < galaxy.children.size() && s < 12; ++s) {
+                const ProcNode sys = uni.node(galaxy.children[s].seed,
+                                              galaxy.children[s].kind, &galaxy);
+                for (const ChildRef& pref : sys.children) {
+                    const ProcNode planet = uni.node(pref.seed, pref.kind, &sys);
+                    ++planets;
+                    if (planet.habitable) {
+                        ++living;
+                        require(!planet.children.empty(), "a living planet must have biomes");
+                        const ProcNode eco = uni.node(planet.children.front().seed,
+                                                      planet.children.front().kind, &planet);
+                        require(!eco.children.empty(), "an ecosystem must have species");
+                        const ProcNode creature = uni.node(eco.children.front().seed,
+                                                           eco.children.front().kind, &eco);
+                        require(node_is_leaf(creature.kind) && creature.children.empty(),
+                                "a creature is a leaf");
+                        descended_life = true;
+                    } else {
+                        require(planet.children.empty(), "a barren planet has no biomes");
+                    }
+                }
+            }
+            if (planets > 200) break;
+        }
+        require(planets > 50, "sample should contain many planets");
+        require(living >= 1, "life should appear somewhere in a large sample");
+        require(living < planets, "most worlds must be barren (life is rare)");
+        require(descended_life, "must descend a living world to a creature");
     }
 
     // --- LRU cache: bounded size + identical regeneration after eviction ------
