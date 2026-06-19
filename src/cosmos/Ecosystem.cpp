@@ -63,6 +63,7 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
     const double ppmr_hi = biome.aquatic ? 2.5 : 3.0;
 
     std::vector<Species>& sp = C.species;
+    sp.reserve(static_cast<std::size_t>(S_max));
 
     // ── 1. Producers (autotrophs, tau≈0), spaced in body mass (Hutchinson) ────
     const int n_prod = std::clamp(static_cast<int>(std::lround(1 + 5 * Rf)), 1, 8);
@@ -131,8 +132,11 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
     for (Species& s : sp) s.mass_kg = std::pow(10.0, s.t.m);
 
     // ── 3. Food-web wiring: continuous size-ratio x niche kernel ──────────────
-    std::vector<std::vector<double>> pref(static_cast<std::size_t>(S),
-                                          std::vector<double>(static_cast<std::size_t>(S), 0.0));
+    // Flat S*S preference matrix (one allocation, cache-friendly), indexed i*S+j.
+    std::vector<double> pref(static_cast<std::size_t>(S) * static_cast<std::size_t>(S), 0.0);
+    const auto PF = [&](int i, int j) -> double& {
+        return pref[static_cast<std::size_t>(i) * static_cast<std::size_t>(S) + static_cast<std::size_t>(j)];
+    };
     for (int i = 0; i < S; ++i) {
         if (sp[static_cast<std::size_t>(i)].t.tau < 0.5 || sp[static_cast<std::size_t>(i)].detritivore)
             continue; // producers/detritivores are not predators
@@ -148,10 +152,10 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
             const double diel = 0.5 + 0.5 * std::cos(kTwoPi * (pi.phi - pj.phi));
             const double defp = std::pow(1.0 - pj.defense, 1.0 + 2.0 * pi.rho);
             const double a = size * clim * diel * defp;
-            if (a > 0.02) { pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = a; total += a; }
+            if (a > 0.02) { PF(i, j) = a; total += a; }
         }
         if (total > 0.0)
-            for (int j = 0; j < S; ++j) pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] /= total;
+            for (int j = 0; j < S; ++j) PF(i, j) /= total;
     }
 
     // ── 4. Realize continuous trophic level from diet (emergent omnivory) ─────
@@ -162,7 +166,7 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
             if (sp[static_cast<std::size_t>(i)].detritivore) { nt[static_cast<std::size_t>(i)] = 1.0; continue; }
             double acc = 0.0, w = 0.0;
             for (int j = 0; j < S; ++j) {
-                const double p = pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+                const double p = PF(i, j);
                 if (p > 0.0) { acc += p * sp[static_cast<std::size_t>(j)].t.tau; w += p; }
             }
             nt[static_cast<std::size_t>(i)] = (w > 0.0) ? 1.0 + acc : 1.0;
@@ -194,7 +198,7 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
     // Total incoming preference on each prey (to split its flux among predators).
     std::vector<double> pressure(static_cast<std::size_t>(S), 0.0);
     for (int i = 0; i < S; ++i)
-        for (int j = 0; j < S; ++j) pressure[static_cast<std::size_t>(j)] += pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+        for (int j = 0; j < S; ++j) pressure[static_cast<std::size_t>(j)] += PF(i, j);
 
     for (int oi = 0; oi < S; ++oi) {
         const int i = order[static_cast<std::size_t>(oi)];
@@ -206,7 +210,7 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
         } else {
             double f = 0.0;
             for (int j = 0; j < S; ++j) {
-                const double p = pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+                const double p = PF(i, j);
                 if (p > 0.0 && pressure[static_cast<std::size_t>(j)] > 0.0) {
                     f += (p / pressure[static_cast<std::size_t>(j)]) * sp[static_cast<std::size_t>(j)].flux;
                 }
@@ -223,18 +227,35 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
     }
 
     // ── 6. Links list + interaction strengths + May stability margin ──────────
+    // Predators iterate in order (outer i), so the link list is already grouped
+    // by predator — exactly the order CSR needs (counting-sort is implicit).
     double mean = 0.0, mean2 = 0.0;
     int L = 0;
-    for (int i = 0; i < S; ++i)
+    C.links.reserve(static_cast<std::size_t>(2 * S));
+    C.csr_off.assign(static_cast<std::size_t>(S) + 1, 0);
+    for (int i = 0; i < S; ++i) {
+        C.csr_off[static_cast<std::size_t>(i)] = L;
         for (int j = 0; j < S; ++j) {
-            const double p = pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+            const double p = PF(i, j);
             if (p <= 0.0) continue;
             Link lk;
             lk.pred = i; lk.prey = j; lk.pref = p;
             lk.alpha = p * std::pow(sp[static_cast<std::size_t>(i)].mass_kg, -0.25);
             C.links.push_back(lk);
+            C.csr_prey.push_back(j);
+            C.csr_alpha.push_back(lk.alpha);
             mean += lk.alpha; mean2 += lk.alpha * lk.alpha; ++L;
         }
+    }
+    C.csr_off[static_cast<std::size_t>(S)] = L;
+    // Precompute 1/max(eps, xeq[prey]) per edge for the hot step() loop.
+    C.csr_inv_xeq.resize(static_cast<std::size_t>(L));
+    for (int eidx = 0; eidx < L; ++eidx) {
+        const int prey = C.csr_prey[static_cast<std::size_t>(eidx)];
+        C.csr_inv_xeq[static_cast<std::size_t>(eidx)] =
+            1.0 / std::max(1.0e-9, sp[static_cast<std::size_t>(prey)].xeq);
+    }
+    C.dx_scratch.assign(static_cast<std::size_t>(S), 0.0);
     const double Cc = (S > 0) ? static_cast<double>(L) / (static_cast<double>(S) * S) : 0.0;
     double sigma = 0.0;
     if (L > 1) { mean /= L; sigma = std::sqrt(std::max(0.0, mean2 / L - mean * mean)); }
@@ -268,7 +289,7 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
     for (int j = 0; j < S; ++j) {
         double impact = 0.0;
         for (int i = 0; i < S; ++i)
-            impact += pref[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] * sp[static_cast<std::size_t>(i)].biomass;
+            impact += PF(i, j) * sp[static_cast<std::size_t>(i)].biomass;
         impact /= (sp[static_cast<std::size_t>(j)].biomass + 1.0e-12); // outsized effect vs own biomass
         if (impact > best) { best = impact; C.stats.keystone = j; }
     }
@@ -279,7 +300,10 @@ void step_community(Community& C, double dt) {
     const int S = static_cast<int>(C.species.size());
     if (S == 0) return;
     dt = std::min(dt, 0.05);
-    std::vector<double> dx(static_cast<std::size_t>(S), 0.0);
+    // Reuse the per-community scratch buffer (no per-frame heap allocation).
+    if (static_cast<int>(C.dx_scratch.size()) != S) C.dx_scratch.assign(static_cast<std::size_t>(S), 0.0);
+    std::vector<double>& dx = C.dx_scratch;
+    std::fill(dx.begin(), dx.end(), 0.0);
 
     for (int i = 0; i < S; ++i) {
         Species& s = C.species[static_cast<std::size_t>(i)];
@@ -293,14 +317,23 @@ void step_community(Community& C, double dt) {
                                                - 0.05 * r * (s.x - s.xeq);
         }
     }
-    // Predation coupling produces the predator-lags-prey breathing, bounded by the
-    // self-limitation above.
-    for (const Link& lk : C.links) {
-        const double flow = 0.15 * lk.alpha * C.species[static_cast<std::size_t>(lk.pred)].x *
-                            C.species[static_cast<std::size_t>(lk.prey)].x /
-                            std::max(1.0e-9, C.species[static_cast<std::size_t>(lk.prey)].xeq);
-        dx[static_cast<std::size_t>(lk.prey)] -= flow;
-        dx[static_cast<std::size_t>(lk.pred)] += 0.1 * flow;
+    // Predation coupling (CSR walk) produces the predator-lags-prey breathing,
+    // bounded by the self-limitation above. Numerically identical to iterating
+    // the link list; csr_inv_xeq precomputes 1/max(eps, xeq[prey]).
+    if (!C.csr_off.empty()) {
+        for (int pred = 0; pred < S; ++pred) {
+            const double xp = C.species[static_cast<std::size_t>(pred)].x;
+            const int e0 = C.csr_off[static_cast<std::size_t>(pred)];
+            const int e1 = C.csr_off[static_cast<std::size_t>(pred) + 1];
+            for (int e = e0; e < e1; ++e) {
+                const int prey = C.csr_prey[static_cast<std::size_t>(e)];
+                const double flow = 0.15 * C.csr_alpha[static_cast<std::size_t>(e)] * xp *
+                                    C.species[static_cast<std::size_t>(prey)].x *
+                                    C.csr_inv_xeq[static_cast<std::size_t>(e)];
+                dx[static_cast<std::size_t>(prey)] -= flow;
+                dx[static_cast<std::size_t>(pred)] += 0.1 * flow;
+            }
+        }
     }
     for (int i = 0; i < S; ++i) {
         Species& s = C.species[static_cast<std::size_t>(i)];

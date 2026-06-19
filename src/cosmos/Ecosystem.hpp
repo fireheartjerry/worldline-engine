@@ -75,7 +75,17 @@ struct CommunityStats {
 
 struct Community {
     std::vector<Species> species; // <= ~40
-    std::vector<Link>    links;   // ~2S
+    std::vector<Link>    links;   // ~2S (canonical edge list; tests + UI iterate it)
+
+    // CSR / forward-star predator->prey adjacency, built from `links` for a
+    // tight, contiguous O(S+L) step() loop. csr_off has size S+1; the others L.
+    std::vector<int>    csr_off;     // per-predator edge offsets
+    std::vector<int>    csr_prey;    // prey index of each edge
+    std::vector<double> csr_alpha;   // interaction strength of each edge
+    std::vector<double> csr_inv_xeq; // precomputed 1/max(eps, xeq[prey])
+
+    std::vector<double> dx_scratch;  // step() derivative buffer (reused, no per-frame alloc)
+
     CommunityStats       stats;
     BiomeParams          biome;
 };
