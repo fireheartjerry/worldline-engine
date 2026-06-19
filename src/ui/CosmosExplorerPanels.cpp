@@ -3,9 +3,11 @@
 
 #include "app/WorldlineStorage.hpp"
 #include "cosmos/Analysis.hpp"
+#include "cosmos/LatticeQCD.hpp"
 #include "cosmos/QuantumGenesis.hpp"
 #include "cosmos/QuantumScale.hpp"
 #include "cosmos/Sandbox.hpp"
+#include "cosmos/SpinEntanglement.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -341,6 +343,13 @@ void draw_inspector(const CosmosState &cosmos, Rectangle rect, float scale) {
         draw_text(l1, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
         y += 15.0f * scale;
         draw_text(l2, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
+        y += 15.0f * scale;
+        // Quantum signatures: QCD confinement (string tension scaled by this
+        // universe's strong coupling) and the Bell/Tsirelson bound 2 sqrt(2).
+        const double sigma = lattice::kStringTension_GeV2 * cosmos.genome.coupling_strong;
+        const std::string l3 = "QCD string " + fmt_fixed(sigma, 2) + " GeV2   Bell max " +
+                               fmt_fixed(spin::kTsirelsonBound, 2) + " (> 2 classical)";
+        draw_text(l3, {rect.x + 14.0f * scale, y}, 11.0f * scale, with_alpha(WL::CYAN_CORE, 170));
         y += 20.0f * scale;
     }
 

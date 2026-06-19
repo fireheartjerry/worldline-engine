@@ -118,6 +118,19 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
   - `cosmos/QuantumStatistics.hpp` — Fermi-Dirac / Bose-Einstein / Maxwell-Boltzmann
     occupation, WKB tunnelling, particle-in-a-box levels, the Gamow factor, and
     degeneracy pressure
+  - `cosmos/SpinEntanglement.hpp` — the non-classical core: Pauli algebra,
+    single-qubit gates with unitarity checks, the Bloch sphere, two-qubit
+    entanglement (Bell states, partial trace, von Neumann entropy, Wootters
+    concurrence), and the CHSH/Bell inequality reaching the Tsirelson bound 2√2
+  - `cosmos/QEDScattering.hpp` — the classical electron radius and Thomson limit,
+    Klein–Nishina Compton scattering and the wavelength shift, Rutherford/Mott
+    Coulomb scattering, Mandelstam `s+t+u`, and the Breit–Wigner resonance
+  - `cosmos/LatticeQCD.hpp` — confinement: the Cornell static-quark potential
+    (Coulomb + linear), the string tension and its Wilson-loop area law, string
+    breaking, Regge trajectories, and a cold-lattice plaquette / Wilson action
+  - `cosmos/NeutrinoOscillation.hpp` — flavour oscillation probabilities, the
+    PMNS mixing angles and mass splittings, oscillation lengths, row unitarity,
+    and the MSW matter resonance
   - `cosmos/QuantumGenesis.hpp` — the **generation step**: synthesizes a universe's
     entire particle-physics content from its law genome (effective couplings, the
     n–p mass split, proton / deuteron / di-proton stability, the periodic-table
