@@ -4,6 +4,9 @@
 #include "ui/CosmosNavigator.hpp"        // kZoomMin / kZoomMax
 #include "renderer/Renderer.hpp"
 
+#include "cosmos/EcoSim.hpp"
+#include "cosmos/SpatialHash.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -47,11 +50,25 @@ void child_layout(const ChildRef& c, NodeKind parent, float t, float& nx, float&
     }
 }
 
-Vector2 child_screen(const CosmosState& cosmos, int i, Rectangle stage, float t) {
-    const DescentState& d = cosmos.descent;
-    float nx, ny;
-    child_layout(d.focus().children[static_cast<std::size_t>(i)], d.focus_kind(), t, nx, ny);
-    return layout_to_screen(nx, ny, stage, d.camera);
+// Single per-frame layout pass: compute every child's screen position once into
+// the reusable buffers (read by hover/pick in update, and links/sprites in draw).
+void fill_child_positions(CosmosState& cosmos, Rectangle stage, float t) {
+    DescentState& d = cosmos.descent;
+    const auto& kids = d.focus().children;
+    const std::size_t n = kids.size();
+    d.child_px.resize(n);
+    d.child_py.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        float nx, ny;
+        child_layout(kids[i], d.focus_kind(), t, nx, ny);
+        const Vector2 p = layout_to_screen(nx, ny, stage, d.camera);
+        d.child_px[i] = p.x;
+        d.child_py[i] = p.y;
+    }
+}
+
+inline Vector2 child_pos(const DescentState& d, int i) {
+    return {d.child_px[static_cast<std::size_t>(i)], d.child_py[static_cast<std::size_t>(i)]};
 }
 
 } // namespace
@@ -178,22 +195,45 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
         if (IsKeyDown(KEY_MINUS) || IsKeyDown(KEY_KP_SUBTRACT)) cam.target_zoom *= std::exp(-2.2 * dt);
         if (IsKeyPressed(KEY_BACKSPACE)) descent_pop(cosmos);
 
-        // Hover: nearest child to the cursor within a small pixel radius.
+        // Single layout pass + O(1) spatial-hash hover with hysteresis (no flicker
+        // when two children are near-equidistant; scales to thousands of children).
+        fill_child_positions(cosmos, stage, t);
         d.hovered_child = -1;
         if (!cam.dragging && over) {
-            float best = 26.0f * std::max(1.0f, static_cast<float>(cam.zoom) * 0.5f);
+            const float radius = 26.0f * std::max(1.0f, static_cast<float>(cam.zoom) * 0.5f);
+            static SpatialHash hash;
+            hash.build(d.child_px, d.child_py, std::max(10.0f, radius));
             const Vector2 mouse = GetMousePosition();
-            for (int i = 0; i < static_cast<int>(d.focus().children.size()); ++i) {
-                const Vector2 p = child_screen(cosmos, i, stage, t);
-                const float dist = std::hypot(p.x - mouse.x, p.y - mouse.y);
-                if (dist < best) { best = dist; d.hovered_child = i; }
+            int cand = hash.nearest(mouse.x, mouse.y, radius);
+            const int n = static_cast<int>(d.child_px.size());
+            // Hysteresis: keep the locked child while it stays in range unless the
+            // candidate is meaningfully (8 px) closer.
+            if (d.hover_locked >= 0 && d.hover_locked < n) {
+                const Vector2 lp = child_pos(d, d.hover_locked);
+                const float dl = std::hypot(lp.x - mouse.x, lp.y - mouse.y);
+                if (dl < radius * 1.25f) {
+                    if (cand >= 0 && cand != d.hover_locked) {
+                        const Vector2 cp = child_pos(d, cand);
+                        const float dc = std::hypot(cp.x - mouse.x, cp.y - mouse.y);
+                        if (dc < dl - 8.0f) d.hover_locked = cand;
+                    }
+                } else {
+                    d.hover_locked = cand;
+                }
+            } else {
+                d.hover_locked = cand;
             }
+            d.hovered_child = d.hover_locked;
             // Click a hovered non-leaf child to enter it.
             if (d.hovered_child >= 0 && IsMouseButtonPressed(MOUSE_LEFT_BUTTON) &&
                 !node_is_leaf(d.focus_kind())) {
                 descent_push(cosmos, d.hovered_child);
             }
+        } else {
+            d.hover_locked = -1;
         }
+    } else {
+        fill_child_positions(cosmos, stage, t);
     }
 
     // Descend / ascend on zoom bounds.
@@ -204,8 +244,8 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
             // the aimed child there). Require it to be reasonably central.
             int best = -1;
             float best_d = 1.0e30f;
-            for (int i = 0; i < static_cast<int>(f.children.size()); ++i) {
-                const Vector2 p = child_screen(cosmos, i, stage, t);
+            for (int i = 0; i < static_cast<int>(d.child_px.size()); ++i) {
+                const Vector2 p = child_pos(d, i);
                 const float dist = std::hypot(p.x - ctr.x, p.y - ctr.y);
                 if (dist < best_d) { best_d = dist; best = i; }
             }
@@ -235,14 +275,15 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
     cam.flash = std::max(0.0f, cam.flash - dt * 2.2f);
     d.transition = std::min(1.0f, d.transition + dt * 2.5f);
 
-    // Live ecosystem: build on entry, then step the population dynamics so the
-    // food web breathes (predators lag prey), bounded by self-limitation.
+    // Live ecosystem: build on entry, then advance with a fixed timestep so the
+    // food web breathes (predators lag prey) smoothly and FPS-independently, while
+    // recording population history for the observability sparklines.
     if (d.focus_kind() == NodeKind::Ecosystem) {
-        if (d.community_seed != d.focus().seed) {
-            d.community = community_for_ecosystem(d.focus());
-            d.community_seed = d.focus().seed;
+        if (d.live_seed != d.focus().seed) {
+            ecosim::init_live(d.live, community_for_ecosystem(d.focus()));
+            d.live_seed = d.focus().seed;
         }
-        eco::step_community(d.community, dt);
+        ecosim::advance(d.live, dt);
     }
 }
 
@@ -257,8 +298,13 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     draw_universe_backdrop(cosmos.palette, cosmos.genome.signature ^ (f.seed * 0x9E3779B9ull),
                            stage, t);
 
+    // Single layout pass for this frame (post-smoothing camera): hover/pick used
+    // the pre-smoothing positions in update; here we recompute once for rendering.
+    fill_child_positions(cosmos, stage, t);
+
     const float zoomf = static_cast<float>(cam.zoom);
     const float sc = base_scale(stage) * zoomf;
+    const bool eco_live = (f.kind == NodeKind::Ecosystem && d.live_seed == f.seed);
 
     // Orbit rings + central body (drawn under the additive field pass).
     BeginScissorMode(static_cast<int>(stage.x), static_cast<int>(stage.y),
@@ -274,22 +320,25 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     } else if (f.kind == NodeKind::Planet) {
         DrawCircleGradient(static_cast<int>(center.x), static_cast<int>(center.y),
                            0.42f * sc, palette_color(f.color, 70), Color{0, 0, 0, 0});
-    } else if (f.kind == NodeKind::Ecosystem && d.community_seed == f.seed) {
-        // Food web: faint links from prey up to predator (energy-flow direction).
-        const int ns = static_cast<int>(f.children.size());
-        for (const eco::Link& lk : d.community.links) {
+    } else if (eco_live) {
+        // Food web: links from prey up to predator (energy-flow direction), with a
+        // soft glow and a brightness that pulses with the live predation flux.
+        const int ns = static_cast<int>(d.child_px.size());
+        for (const eco::Link& lk : d.live.community.links) {
             if (lk.pred >= ns || lk.prey >= ns) continue;
-            const Vector2 a = child_screen(cosmos, lk.prey, stage, t);
-            const Vector2 b = child_screen(cosmos, lk.pred, stage, t);
+            const Vector2 a = child_pos(d, lk.prey);
+            const Vector2 b = child_pos(d, lk.pred);
             const Color pc = to_raylib(f.children[static_cast<std::size_t>(lk.pred)].color);
-            DrawLineEx(a, b, 1.0f,
-                       with_alpha(pc, static_cast<unsigned char>(20.0 + 120.0 * lk.pref)));
+            const float flux = (lk.prey < static_cast<int>(d.live.community.species.size()))
+                               ? static_cast<float>(ecosim::render_x(d.live, lk.prey) /
+                                   std::max(1.0e-9, d.live.community.species[static_cast<std::size_t>(lk.prey)].xeq))
+                               : 1.0f;
+            const unsigned char la = static_cast<unsigned char>(
+                std::clamp(18.0 + 120.0 * lk.pref * std::min(1.5f, flux), 0.0, 200.0));
+            DrawLineEx(a, b, 1.3f, with_alpha(pc, la));
         }
     }
     EndScissorMode();
-
-    // Per-species population pulse (live dynamics) for the ecosystem food web.
-    const bool eco_live = (f.kind == NodeKind::Ecosystem && d.community_seed == f.seed);
 
     // Build the bounded sprite set.
     std::vector<Renderer::FieldSprite> sprites;
@@ -310,16 +359,15 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     const int n = std::min(static_cast<int>(f.children.size()), 60);
     for (int i = 0; i < n; ++i) {
         const ChildRef& c = f.children[static_cast<std::size_t>(i)];
-        float nx, ny;
-        child_layout(c, f.kind, t, nx, ny);
         Renderer::FieldSprite s;
-        s.pos = layout_to_screen(nx, ny, stage, cam);
+        s.pos = child_pos(d, i);
         const float kind_scale = (f.kind == NodeKind::Universe || f.kind == NodeKind::Galaxy) ? 6.0f
                                : (f.kind == NodeKind::Ecosystem) ? 5.0f : 5.5f;
         float pulse = 1.0f;
-        if (eco_live && i < static_cast<int>(d.community.species.size())) {
-            const eco::Species& sp = d.community.species[static_cast<std::size_t>(i)];
-            pulse = std::clamp(static_cast<float>(std::sqrt(sp.x / std::max(1.0e-9, sp.xeq))), 0.45f, 2.2f);
+        if (eco_live && i < static_cast<int>(d.live.community.species.size())) {
+            // Interpolated + low-pass smoothed pulse: never flickers on population change.
+            const double xeq = d.live.community.species[static_cast<std::size_t>(i)].xeq;
+            pulse = static_cast<float>(ecosim::smoothed_pulse(ecosim::render_x(d.live, i), xeq));
         }
         s.radius = std::clamp((2.0f + c.size * kind_scale) * std::sqrt(zoomf) * pulse, 1.5f, 26.0f);
         Color col = to_raylib(c.color);
@@ -339,7 +387,7 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
                          static_cast<int>(stage.width), static_cast<int>(stage.height));
         for (int i = 0; i < n; ++i) {
             if (!f.children[static_cast<std::size_t>(i)].habitable) continue;
-            const Vector2 p = child_screen(cosmos, i, stage, t);
+            const Vector2 p = child_pos(d, i);
             DrawCircleLines(static_cast<int>(p.x), static_cast<int>(p.y), 9.0f * ui,
                             with_alpha(WL::PLASMA_GREEN, 230));
             DrawCircleLines(static_cast<int>(p.x), static_cast<int>(p.y), 12.0f * ui,
@@ -356,9 +404,9 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     }
 
     // Hover label + reticle.
-    if (d.hovered_child >= 0 && d.hovered_child < static_cast<int>(f.children.size())) {
+    if (d.hovered_child >= 0 && d.hovered_child < static_cast<int>(d.child_px.size())) {
         const ChildRef& c = f.children[static_cast<std::size_t>(d.hovered_child)];
-        const Vector2 p = child_screen(cosmos, d.hovered_child, stage, t);
+        const Vector2 p = child_pos(d, d.hovered_child);
         const float r = 16.0f * ui;
         BeginScissorMode(static_cast<int>(stage.x), static_cast<int>(stage.y),
                          static_cast<int>(stage.width), static_cast<int>(stage.height));
@@ -409,29 +457,147 @@ void draw_descent_breadcrumb(CosmosState& cosmos, Rectangle rect, float ui) {
     }
 }
 
+namespace {
+
+// Compact "label .......... value" row for dense fact listings.
+float draw_fact_row(Rectangle rect, float y, const std::string& k, const std::string& v, float ui) {
+    draw_text(k, {rect.x + 14.0f * ui, y}, 11.5f * ui, WL::TEXT_TERTIARY);
+    const Vector2 vs = measure_ui_text(v, 12.0f * ui);
+    const float vx = std::max(rect.x + rect.width * 0.45f, rect.x + rect.width - 14.0f * ui - vs.x);
+    draw_text(v, {vx, y}, 12.0f * ui, WL::TEXT_SECONDARY);
+    return y + 18.5f * ui;
+}
+
+// A population-history sparkline (auto-scaled to its own min/max).
+void draw_pop_spark(Rectangle r, const ecosim::PopRing& ring, Color c) {
+    DrawRectangleRounded(r, 0.25f, 4, Color{5, 12, 22, 170});
+    DrawRectangleRoundedLines(r, 0.25f, 4, 1.0f, with_alpha(WL::GLASS_BORDER, 60));
+    const int n = ring.filled;
+    if (n < 2) return;
+    float mn = 1e30f, mx = -1e30f;
+    for (int i = 0; i < n; ++i) { const float v = ring.at(i); mn = std::min(mn, v); mx = std::max(mx, v); }
+    const float span = std::max(1e-12f, mx - mn);
+    Vector2 prev{};
+    for (int i = 0; i < n; ++i) {
+        const float x = r.x + static_cast<float>(i) / static_cast<float>(n - 1) * r.width;
+        const float yy = r.y + r.height - 1.0f - (ring.at(i) - mn) / span * (r.height - 2.0f);
+        const Vector2 p{x, yy};
+        if (i > 0) DrawLineEx(prev, p, 1.3f, c);
+        prev = p;
+    }
+}
+
+// Horizontal capacity gauge.
+void draw_health_gauge(Rectangle r, const std::string& label, float v01, Color fill, float ui) {
+    DrawRectangleRounded(r, 0.5f, 6, Color{5, 12, 22, 195});
+    const float w = std::clamp(v01, 0.0f, 1.0f) * (r.width - 4.0f);
+    DrawRectangleRounded({r.x + 2.0f, r.y + 2.0f, std::max(3.0f, w), r.height - 4.0f}, 0.5f, 6,
+                         with_alpha(fill, 205));
+    DrawRectangleRoundedLines(r, 0.5f, 6, 1.0f, with_alpha(fill, 120));
+    draw_text(label, {r.x + 9.0f * ui, r.y + (r.height - 10.0f * ui) * 0.5f}, 10.0f * ui, WL::TEXT_PRIMARY);
+}
+
+} // namespace
+
 void draw_descent_inspector(CosmosState& cosmos, Rectangle rect, float ui) {
     DescentState& d = cosmos.descent;
     const ProcNode& f = d.focus();
+    const bool eco_live = (f.kind == NodeKind::Ecosystem && d.live_seed == f.seed);
+
     draw_card(rect, {6, 13, 24, 224}, with_alpha(WL::GLASS_BORDER, 120));
     draw_text(node_kind_name(f.kind), {rect.x + 14.0f * ui, rect.y + 12.0f * ui}, 12.0f * ui,
               with_alpha(WL::CYAN_CORE, 200));
+    draw_tick_strip({rect.x + rect.width - 92.0f * ui, rect.y + 17.0f * ui}, 12, 6.0f * ui,
+                    6.0f * ui, WL::CYAN_DIM);
     draw_text(f.name, {rect.x + 14.0f * ui, rect.y + 28.0f * ui}, 20.0f * ui, WL::TEXT_PRIMARY);
     draw_text_block(f.descriptor,
-                    {rect.x + 14.0f * ui, rect.y + 54.0f * ui, rect.width - 28.0f * ui, 40.0f * ui},
+                    {rect.x + 14.0f * ui, rect.y + 54.0f * ui, rect.width - 28.0f * ui, 36.0f * ui},
                     12.5f * ui, WL::TEXT_TERTIARY, 2.0f * ui);
 
-    // Facts grid.
-    const float grid_y = rect.y + 96.0f * ui;
+    // Key metric tiles: the four headline facts as a 2x2.
+    float y = rect.y + 94.0f * ui;
     const float tile_w = (rect.width - 30.0f * ui) * 0.5f;
     const float tile_h = 40.0f * ui;
-    for (std::size_t i = 0; i < f.facts.size() && i < 8; ++i) {
+    const int n_tiles = std::min<int>(4, static_cast<int>(f.facts.size()));
+    for (int i = 0; i < n_tiles; ++i) {
         const Rectangle tile = {rect.x + 12.0f * ui + (i % 2) * (tile_w + 6.0f * ui),
-                                grid_y + (i / 2) * (tile_h + 6.0f * ui), tile_w, tile_h};
-        draw_metric(tile, f.facts[i].first.c_str(), f.facts[i].second, ui);
+                                y + (i / 2) * (tile_h + 6.0f * ui), tile_w, tile_h};
+        draw_metric(tile, f.facts[static_cast<std::size_t>(i)].first.c_str(),
+                    f.facts[static_cast<std::size_t>(i)].second, ui);
+    }
+    y += static_cast<float>((n_tiles + 1) / 2) * (tile_h + 6.0f * ui) + 8.0f * ui;
+
+    // ── Ecosystem observability: health gauge, trophic pyramid, live sparklines ──
+    if (eco_live) {
+        const eco::Community& C = d.live.community;
+
+        const float health = std::clamp(0.5f + 0.5f * static_cast<float>(C.stats.stability_margin),
+                                        0.0f, 1.0f);
+        const Color hc = lerp_color(WL::XENON_CORE, WL::PLASMA_GREEN, health);
+        draw_text("ECOSYSTEM HEALTH", {rect.x + 14.0f * ui, y}, 10.5f * ui, with_alpha(WL::CYAN_CORE, 180));
+        y += 15.0f * ui;
+        draw_health_gauge({rect.x + 12.0f * ui, y, rect.width - 24.0f * ui, 16.0f * ui},
+                          C.stats.stability_margin > 0.0 ? "stable" : "stressed", health, hc, ui);
+        y += 25.0f * ui;
+
+        draw_text("TROPHIC BIOMASS PYRAMID", {rect.x + 14.0f * ui, y}, 10.5f * ui,
+                  with_alpha(WL::CYAN_CORE, 180));
+        y += 15.0f * ui;
+        double band[5] = {0, 0, 0, 0, 0};
+        for (const auto& s : C.species) {
+            const int b = s.t.tau < 0.5 ? 0 : (s.t.tau < 1.5 ? 1 : (s.t.tau < 2.4 ? 2 : (s.t.tau < 3.5 ? 3 : 4)));
+            band[b] += s.biomass;
+        }
+        double bmx = 1e-12;
+        for (double b : band) bmx = std::max(bmx, b);
+        const char* blbl[5] = {"Producers", "Herbivores", "Omnivores", "Carnivores", "Apex"};
+        const Color bcol[5] = {WL::PLASMA_GREEN, WL::CYAN_CORE, {120, 200, 120, 255},
+                               WL::XENON_CORE, {255, 92, 92, 255}};
+        const float rowh = 15.0f * ui;
+        for (int i = 0; i < 5; ++i) {
+            const int bi = 4 - i; // apex on top
+            const float frac = static_cast<float>(band[bi] / bmx);
+            const float w = std::max(8.0f, frac * (rect.width - 32.0f * ui));
+            const Rectangle bar = {rect.x + 16.0f * ui + ((rect.width - 32.0f * ui) - w) * 0.5f,
+                                   y + i * rowh, w, rowh - 3.0f * ui};
+            DrawRectangleRounded(bar, 0.4f, 4, with_alpha(bcol[bi], 175));
+            draw_text(blbl[bi], {rect.x + 18.0f * ui, y + i * rowh - 0.5f * ui}, 9.0f * ui,
+                      with_alpha(WL::TEXT_PRIMARY, 205));
+        }
+        y += 5.0f * rowh + 10.0f * ui;
+
+        draw_text("POPULATION DYNAMICS", {rect.x + 14.0f * ui, y}, 10.5f * ui,
+                  with_alpha(WL::CYAN_CORE, 180));
+        y += 15.0f * ui;
+        std::vector<int> order(C.species.size());
+        for (std::size_t i = 0; i < order.size(); ++i) order[i] = static_cast<int>(i);
+        std::sort(order.begin(), order.end(),
+                  [&](int a, int b) { return C.species[static_cast<std::size_t>(a)].biomass >
+                                             C.species[static_cast<std::size_t>(b)].biomass; });
+        const float row_dy = 25.0f * ui;
+        const int rows = std::min<int>(static_cast<int>(order.size()),
+                                       static_cast<int>((rect.y + rect.height - y - 6.0f * ui) / row_dy));
+        for (int r = 0; r < rows; ++r) {
+            const int si = order[static_cast<std::size_t>(r)];
+            const float ry = y + r * row_dy;
+            const bool key = (si == C.stats.keystone);
+            DrawCircleGradient(static_cast<int>(rect.x + 17.0f * ui), static_cast<int>(ry + 8.0f * ui),
+                               5.0f * ui, to_raylib(C.species[static_cast<std::size_t>(si)].color), {0, 0, 0, 0});
+            const std::string nm = C.species[static_cast<std::size_t>(si)].name + (key ? "  keystone" : "");
+            draw_text(nm, {rect.x + 27.0f * ui, ry + 1.0f * ui}, 10.5f * ui,
+                      key ? WL::PLASMA_GREEN : WL::TEXT_SECONDARY);
+            if (si < static_cast<int>(d.live.history.size()))
+                draw_pop_spark({rect.x + rect.width * 0.52f, ry, rect.width * 0.48f - 14.0f * ui, 16.0f * ui},
+                               d.live.history[static_cast<std::size_t>(si)],
+                               to_raylib(C.species[static_cast<std::size_t>(si)].color));
+        }
+        return;
     }
 
-    float y = grid_y + static_cast<float>((f.facts.size() + 1) / 2) * (tile_h + 6.0f * ui) +
-              8.0f * ui;
+    // ── Non-ecosystem: remaining facts as dense rows (full physiology shows) ─────
+    for (std::size_t i = static_cast<std::size_t>(n_tiles); i < f.facts.size(); ++i)
+        y = draw_fact_row(rect, y, f.facts[i].first, f.facts[i].second, ui);
+    y += 8.0f * ui;
 
     // Hovered child preview.
     if (d.hovered_child >= 0 && d.hovered_child < static_cast<int>(f.children.size())) {

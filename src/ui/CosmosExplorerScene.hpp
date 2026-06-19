@@ -2,6 +2,7 @@
 
 #include "raylib.h"
 #include "app/AppTypes.hpp"
+#include "cosmos/EcoSim.hpp"
 #include "cosmos/LawGenome.hpp"
 #include "cosmos/NBodySystem.hpp"
 #include "cosmos/ObjectCatalog.hpp"
@@ -41,10 +42,17 @@ struct DescentState {
     int transition_dir = 0;                           // +1 descending, -1 ascending
     bool initialized = false;
 
-    // Live ecosystem (built when entering an Ecosystem node, stepped each frame
-    // so the food web breathes — predators lagging prey).
-    cosmos::eco::Community community;
-    std::uint64_t community_seed = 0;
+    // Live ecosystem simulation: built when entering an Ecosystem node and advanced
+    // with a fixed timestep (FPS-independent, deterministic) so the food web breathes
+    // smoothly; carries population history for the observability sparklines.
+    cosmos::ecosim::LiveSim live;
+    std::uint64_t live_seed = 0;
+
+    // Single per-frame layout pass: child screen positions, reused by hover, pick,
+    // food-web links, and sprites (avoids 3-4x redundant recomputation).
+    std::vector<float> child_px;
+    std::vector<float> child_py;
+    int hover_locked = -1;   // hover hysteresis (prevents flip-flop near ties)
 
     const cosmos::ProcNode& focus() const { return path.back(); }
     cosmos::NodeKind focus_kind() const {
