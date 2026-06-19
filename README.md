@@ -96,6 +96,13 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
   plus a wormhole, up to galaxies and the cosmic web and its voids
 - real SI anchors that drive computed physics in the inspector — density,
   Schwarzschild radius, escape velocity, and compactness derived from `G` and `c`
+- a deterministic, lazily-generated, LRU-cached procedural universe you can
+  descend into by zooming — galaxy → star system → planet → ecosystem → creature
+  — with bounded work and memory (same place always regenerates identically)
+- research-grounded generation: stars follow the real stellar IMF and HR
+  relations, planet habitability is gated by the Kopparapu habitable zone and
+  star lifetime (so most worlds are barren), and living worlds grow Whittaker
+  biomes with NPP-scaled, trophically-balanced food webs
 - universe classification with granular signature metrics and an observer fleet
 - 3D navigation boilerplate for future free-flight exploration
 - cohesive glassmorphic, sci-fi HUD interface shared across every screen
