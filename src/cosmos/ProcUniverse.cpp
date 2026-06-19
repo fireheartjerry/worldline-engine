@@ -2,6 +2,7 @@
 
 #include "cosmos/Astrobio.hpp"
 #include "cosmos/Biogeography.hpp"
+#include "cosmos/Cosmography.hpp"
 #include "cosmos/CosmoStats.hpp"
 #include "cosmos/Demography.hpp"
 #include "cosmos/Ecosystem.hpp"
@@ -186,15 +187,28 @@ void gen_universe(ProcNode& n, Rng& r) {
     add_fact(n, "Composition", "5% baryons / 27% dark matter / 68% dark energy");
     add_fact(n, "CMB temperature", fmt_g(cstat::kTcmb, 4) + " K");
     add_fact(n, "BAO scale", fmt_g(cstat::kRdragMpc, 4) + " Mpc");
+
+    // Lay galaxies along the COSMIC WEB: sample a deterministic density field and
+    // keep its densest points (filaments + cluster nodes), so galaxies clump on
+    // filaments and the voids stay empty — the universe reads as the real web.
+    std::vector<cosmoweb::WebPoint> web = cosmoweb::sample_cosmic_web(n.seed, count * 10, 200.0);
+    std::sort(web.begin(), web.end(), [](const cosmoweb::WebPoint& a, const cosmoweb::WebPoint& b) {
+        return a.density_contrast > b.density_contrast;
+    });
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
         const Identity id = identity_for(NodeKind::Galaxy, cs, language_for(NodeKind::Galaxy, cs, &n));
-        const double ang = r.f01() * kTau;
-        const double rad = std::sqrt(r.f01());
         ChildRef c;
         c.seed = cs; c.kind = NodeKind::Galaxy;
-        c.x = static_cast<float>(std::cos(ang) * rad);
-        c.y = static_cast<float>(std::sin(ang) * rad);
+        if (i < static_cast<int>(web.size())) {
+            const cosmoweb::WebPoint& wp = web[static_cast<std::size_t>(i)];
+            c.x = std::clamp((wp.x / 200.0f) * 2.0f - 1.0f, -0.96f, 0.96f) * 0.96f;
+            c.y = std::clamp((wp.y / 200.0f) * 2.0f - 1.0f, -0.96f, 0.96f) * 0.96f;
+        } else {
+            const double ang = r.f01() * kTau, rad = std::sqrt(r.f01());
+            c.x = static_cast<float>(std::cos(ang) * rad);
+            c.y = static_cast<float>(std::sin(ang) * rad);
+        }
         c.size = id.size; c.color = id.color; c.name = id.name;
         n.children.push_back(std::move(c));
     }
