@@ -216,6 +216,7 @@ void gen_universe(ProcNode& n, Rng& r) {
 
 void gen_galaxy(ProcNode& n, Rng& r) {
     const int morph = galaxy_morph(n.seed);
+    n.subtype = morph; // 0 spiral, 1 elliptical, 2 irregular (drives the renderer)
     const int count = r.irange(28, 60);
     n.descriptor = std::string("A ") + galaxy_morph_name(morph) + " galaxy of ~" +
                    std::to_string(count) + " charted systems.";

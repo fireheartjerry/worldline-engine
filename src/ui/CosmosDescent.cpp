@@ -336,6 +336,32 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
                 DrawLineEx(child_pos(d, i), child_pos(d, b), 1.1f, with_alpha(WL::CYAN_DIM, a));
             }
         }
+    } else if (f.kind == NodeKind::Galaxy) {
+        // Morphology-accurate structure under the star field: a halo glow plus
+        // log-spiral arms (spiral) or concentric isophotes (elliptical).
+        DrawCircleGradient(static_cast<int>(center.x), static_cast<int>(center.y), 0.85f * sc,
+                           palette_color(f.color, 24), Color{0, 0, 0, 0});
+        if (f.subtype == 0) { // spiral
+            const int arms = 2;
+            for (int aidx = 0; aidx < arms; ++aidx) {
+                const float base = static_cast<float>(aidx) * (6.2831853f / arms) + t * 0.02f;
+                Vector2 prev{};
+                for (float th = 0.0f; th < 3.4f; th += 0.12f) {
+                    const float rr = 0.06f * std::exp(0.42f * th);
+                    if (rr > 0.95f) break;
+                    const float ang = base + th;
+                    const Vector2 p = layout_to_screen(std::cos(ang) * rr, std::sin(ang) * rr, stage, cam);
+                    if (th > 0.0f) DrawLineEx(prev, p, 1.5f, with_alpha(to_raylib(f.color), 60));
+                    prev = p;
+                }
+            }
+        } else if (f.subtype == 1) { // elliptical isophotes
+            for (int k = 1; k <= 4; ++k) {
+                const float rr = 0.22f * static_cast<float>(k);
+                DrawEllipseLines(static_cast<int>(center.x), static_cast<int>(center.y),
+                                 0.92f * rr * sc, 0.60f * rr * sc, with_alpha(to_raylib(f.color), 52));
+            }
+        }
     } else if (f.kind == NodeKind::StarSystem) {
         for (const ChildRef& c : f.children) {
             if (c.orbit > 1.0e-4f) {
@@ -397,13 +423,16 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     const unsigned char child_alpha =
         static_cast<unsigned char>(std::clamp(70.0f + 185.0f * d.transition, 0.0f, 255.0f));
 
-    // A central body for levels that have one.
-    if (f.kind == NodeKind::StarSystem || f.kind == NodeKind::Creature) {
+    // A central body for levels that have one: the star, the creature specimen,
+    // or a galaxy's bright bulge/SMBH core.
+    if (f.kind == NodeKind::StarSystem || f.kind == NodeKind::Creature ||
+        f.kind == NodeKind::Galaxy) {
         Renderer::FieldSprite s;
         s.pos = center;
-        s.radius = std::clamp((f.kind == NodeKind::StarSystem ? 9.0f : 16.0f) * std::sqrt(zoomf),
-                              4.0f, 40.0f);
-        s.color = to_raylib(f.color);
+        const float core_r = f.kind == NodeKind::StarSystem ? 9.0f
+                           : f.kind == NodeKind::Creature ? 16.0f : 11.0f;
+        s.radius = std::clamp(core_r * std::sqrt(zoomf), 4.0f, 40.0f);
+        s.color = f.kind == NodeKind::Galaxy ? lighten(to_raylib(f.color), 0.4f) : to_raylib(f.color);
         sprites.push_back(s);
     }
 
