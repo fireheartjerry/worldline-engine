@@ -200,9 +200,22 @@ void gen_galaxy(ProcNode& n, Rng& r) {
     const int count = r.irange(28, 60);
     n.descriptor = std::string("A ") + galaxy_morph_name(morph) + " galaxy of ~" +
                    std::to_string(count) + " charted systems.";
+    // Grounded galactic properties (CosmoStats): a Schechter-skewed stellar mass,
+    // an NFW dark-matter halo, and an M-sigma central supermassive black hole.
+    const double logM = 8.5 + 2.7 * std::pow(r.f01(), 1.6); // skewed toward low mass, tail to ~10^11
+    const double m_star = std::pow(10.0, logM);             // stellar mass, Msun
+    const double m_halo = m_star / 0.02;                    // ~2% stellar-to-halo near M*
+    const double halo_conc = cstat::nfw_concentration(m_halo / 1.0e12);
+    const double sigma_kms = 200.0 * std::pow(m_star / 4.0e10, 0.25); // Faber-Jackson-ish
+    const double m_bh = cstat::m_sigma_bh_mass(sigma_kms);  // central SMBH, Msun
+    const double n_stars_bil = (m_star / 0.3) / 1.0e9;      // ~0.3 Msun mean per star (IMF)
     add_fact(n, "Morphology", galaxy_morph_name(morph));
     add_fact(n, "Charted systems", std::to_string(count));
-    add_fact(n, "Stars", std::to_string(r.irange(1, 400)) + " billion");
+    add_fact(n, "Stellar mass", fmt_g(m_star / 1.0e9, 2) + " billion Msun");
+    add_fact(n, "Stars", fmt_g(n_stars_bil, 2) + " billion");
+    add_fact(n, "Dark-matter halo", fmt_g(m_halo / 1.0e12, 2) + "e12 Msun (c=" +
+                                     fmt_g(halo_conc, 2) + ")");
+    add_fact(n, "Central black hole", fmt_g(m_bh, 2) + " Msun");
     const int arms = 2 + static_cast<int>(salt(n.seed, 21) % 3);
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
