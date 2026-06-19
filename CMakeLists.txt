@@ -60,6 +60,7 @@ add_library(worldline_app
     src/app/UniverseProject.cpp
     src/app/WorldlineCopy.cpp
     src/app/WorldlineStorage.cpp
+    src/app/WorldlineStorageSettings.cpp
 )
 target_include_directories(worldline_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(worldline_app PUBLIC worldline_seed worldline_physics worldline_cosmos)
@@ -71,6 +72,7 @@ add_executable(worldline
     src/ui/CosmosExplorerPanels.cpp
     src/ui/GuidedFirstUniverseScene.cpp
     src/ui/SeedWorkspaceScene.cpp
+    src/ui/SeedWorkspacePanels.cpp
     src/ui/TraceScene.cpp
     src/ui/UniverseAtlasScene.cpp
 )
