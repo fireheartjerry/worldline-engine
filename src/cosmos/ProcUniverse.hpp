@@ -113,9 +113,18 @@ public:
     // Re-root to a new universe seed (clears the cache).
     void reseed(std::uint64_t root_seed);
 
+    // Memoized community for an Ecosystem node (bounded LRU keyed by its seed) so
+    // descending into many creatures doesn't recompute the O(S^2) food web each
+    // time. Pure: same node -> identical community, so it stays deterministic.
+    const eco::Community& community_cached(const ProcNode& eco_node) const;
+
 private:
     struct Entry {
         ProcNode node;
+        std::list<std::uint64_t>::iterator lru_it;
+    };
+    struct EcoEntry {
+        eco::Community comm;
         std::list<std::uint64_t>::iterator lru_it;
     };
 
@@ -127,6 +136,11 @@ private:
     std::size_t budget_ = 1024;
     std::list<std::uint64_t> lru_;                       // front = most recently used
     std::unordered_map<std::uint64_t, Entry> cache_;
+
+    // Community memo-cache (mutable: a pure memoization layer over const generation).
+    std::size_t eco_budget_ = 64;
+    mutable std::list<std::uint64_t> eco_lru_;
+    mutable std::unordered_map<std::uint64_t, EcoEntry> eco_cache_;
 };
 
 } // namespace cosmos

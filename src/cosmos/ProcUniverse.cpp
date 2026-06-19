@@ -358,7 +358,7 @@ eco::Community ecosystem_community(const ProcNode& eco_node) {
     return eco::generate_community(eco_node.seed, b, &eco_node.language);
 }
 
-void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent) {
+void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent, const ProcUniverse* self) {
     // Biome from the planet's climate, perturbed per-ecosystem (latitude band).
     double temp = 18.0, precip = 1200.0;
     if (parent != nullptr && parent->kind == NodeKind::Planet) {
@@ -372,7 +372,7 @@ void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent) {
     n.color = hsv8(astro::biome_hue(biome), 0.6, 0.85);
 
     // Assemble a full continuous trait-based community (the real ecosystem).
-    const eco::Community comm = ecosystem_community(n);
+    const eco::Community& comm = self ? self->community_cached(n) : ecosystem_community(n);
     const double npp = astro::npp_for(biome);
     n.descriptor = std::string(astro::biome_name(biome)) + " — " +
                    std::to_string(comm.species.size()) + " species across " +
@@ -410,9 +410,9 @@ void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent) {
         add_fact(n, "Keystone", comm.species[static_cast<std::size_t>(comm.stats.keystone)].name);
 }
 
-void gen_creature(ProcNode& n, Rng& r, const ProcNode* parent) {
+void gen_creature(ProcNode& n, Rng& r, const ProcNode* parent, const ProcUniverse* self) {
     if (parent != nullptr && parent->kind == NodeKind::Ecosystem) {
-        const eco::Community comm = ecosystem_community(*parent);
+        const eco::Community& comm = self ? self->community_cached(*parent) : ecosystem_community(*parent);
         int idx = -1;
         for (std::size_t k = 0; k < parent->children.size(); ++k)
             if (parent->children[k].seed == n.seed) { idx = static_cast<int>(k); break; }
@@ -515,6 +515,30 @@ void ProcUniverse::reseed(std::uint64_t root_seed) {
     root_seed_ = root_seed ? root_seed : 1ull;
     cache_.clear();
     lru_.clear();
+    eco_cache_.clear();
+    eco_lru_.clear();
+}
+
+const eco::Community& ProcUniverse::community_cached(const ProcNode& eco_node) const {
+    const std::uint64_t key = eco_node.seed;
+    auto it = eco_cache_.find(key);
+    if (it != eco_cache_.end()) {
+        eco_lru_.erase(it->second.lru_it);
+        eco_lru_.push_front(key);
+        it->second.lru_it = eco_lru_.begin();
+        return it->second.comm;
+    }
+    EcoEntry e;
+    e.comm = ecosystem_community(eco_node); // pure: same node -> identical community
+    eco_lru_.push_front(key);
+    e.lru_it = eco_lru_.begin();
+    auto res = eco_cache_.emplace(key, std::move(e));
+    while (eco_cache_.size() > eco_budget_ && !eco_lru_.empty()) {
+        const std::uint64_t old = eco_lru_.back();
+        eco_lru_.pop_back();
+        eco_cache_.erase(old);
+    }
+    return res.first->second.comm;
 }
 
 ProcNode ProcUniverse::generate(std::uint64_t seed, NodeKind kind, const ProcNode* parent) const {
@@ -531,8 +555,8 @@ ProcNode ProcUniverse::generate(std::uint64_t seed, NodeKind kind, const ProcNod
     case NodeKind::Galaxy:     gen_galaxy(n, r); break;
     case NodeKind::StarSystem: gen_starsystem(n, r); break;
     case NodeKind::Planet:     gen_planet(n, r, parent); break;
-    case NodeKind::Ecosystem:  gen_ecosystem(n, r, parent); break;
-    case NodeKind::Creature:   gen_creature(n, r, parent); break;
+    case NodeKind::Ecosystem:  gen_ecosystem(n, r, parent, this); break;
+    case NodeKind::Creature:   gen_creature(n, r, parent, this); break;
     default: break;
     }
     return n;
