@@ -1,6 +1,7 @@
 #include "cosmos/ProcUniverse.hpp"
 
 #include "cosmos/Astrobio.hpp"
+#include "cosmos/Phonology.hpp"
 
 #include <array>
 #include <cctype>
@@ -51,22 +52,6 @@ Color8 hsv8(double h, double s, double v) {
     return {static_cast<unsigned char>(r * 255.0),
             static_cast<unsigned char>(g * 255.0),
             static_cast<unsigned char>(b * 255.0)};
-}
-
-std::string gen_name(Rng& r, int min_syl, int max_syl) {
-    static const char* on[] = {"ar", "ve", "lo", "ta", "ne", "xi", "qu", "za", "mo", "el",
-                               "ka", "sy", "dra", "th", "vor", "lyr", "cae", "nyx", "io", "or",
-                               "an", "ul", "is", "ae", "ze", "pho", "rin", "sol", "vel", "cy"};
-    static const char* nu[] = {"a", "e", "i", "o", "u", "ae", "ia", "or", "yn", "ar",
-                               "el", "is", "on", "us", "ix", "ea"};
-    const int n = r.irange(min_syl, max_syl);
-    std::string s;
-    for (int i = 0; i < n; ++i) {
-        s += on[r.u64() % (sizeof(on) / sizeof(on[0]))];
-        if (i + 1 < n) s += nu[r.u64() % (sizeof(nu) / sizeof(nu[0]))];
-    }
-    if (!s.empty()) s[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(s[0])));
-    return s;
 }
 
 // --- Type pickers (each a deterministic function of seed, with its own salt) ---
@@ -125,27 +110,29 @@ Identity identity_for(NodeKind kind, std::uint64_t seed) {
         id.size = 1.0f;
         break;
     case NodeKind::Galaxy:
-        id.name = gen_name(r, 2, 3) + ((galaxy_morph(seed) == 1) ? " Cloud" : " Galaxy");
+        id.name = phon::generate_name(phon::make_language(seed), seed, 1.15f, 0.95f) +
+                  ((galaxy_morph(seed) == 1) ? " Cloud" : " Galaxy");
         id.color = hsv8(r.range(0.52, 0.95), 0.32, 1.0);
         id.size = static_cast<float>(r.range(0.5, 1.0));
         break;
     case NodeKind::StarSystem:
-        id.name = gen_name(r, 1, 2) + "-" + std::to_string(r.irange(1, 999));
+        id.name = phon::generate_name(phon::make_language(seed), seed, 0.85f, 0.8f) +
+                  "-" + std::to_string(r.irange(1, 999));
         id.color = star_class_color(star_class_for(seed));
         id.size = static_cast<float>(r.range(0.45, 0.85));
         break;
     case NodeKind::Planet:
-        id.name = gen_name(r, 2, 3);
+        id.name = phon::generate_name(phon::make_language(seed), seed, 1.0f, 0.6f);
         id.color = planet_type_color(planet_type(seed));
         id.size = static_cast<float>(r.range(0.3, 0.9));
         break;
     case NodeKind::Ecosystem:
-        id.name = gen_name(r, 1, 2) + " Biome";
+        id.name = phon::generate_name(phon::make_language(seed), seed, 0.9f, 0.4f) + " Biome";
         id.color = hsv8(r.range(0.20, 0.45), 0.55, 0.88);
         id.size = static_cast<float>(r.range(0.5, 0.95));
         break;
     case NodeKind::Creature:
-        id.name = gen_name(r, 1, 2);
+        id.name = phon::generate_name(phon::make_language(seed), seed, 1.25f, 0.3f);
         id.color = creature_role_color(creature_role(seed));
         id.size = static_cast<float>(r.range(0.25, 1.0));
         break;

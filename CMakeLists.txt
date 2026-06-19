@@ -142,6 +142,12 @@ target_link_libraries(worldline_cosmos_astrobio_tests PRIVATE worldline_cosmos)
 worldline_apply_warnings(worldline_cosmos_astrobio_tests)
 add_test(NAME cosmos_astrobio_verification COMMAND worldline_cosmos_astrobio_tests)
 
+add_executable(worldline_cosmos_phonology_tests tests/cosmos_phonology_verification.cpp)
+target_include_directories(worldline_cosmos_phonology_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_phonology_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_phonology_tests)
+add_test(NAME cosmos_phonology_verification COMMAND worldline_cosmos_phonology_tests)
+
 install(TARGETS worldline RUNTIME DESTINATION .)
 install(FILES README.md LICENSE DESTINATION .)
 
