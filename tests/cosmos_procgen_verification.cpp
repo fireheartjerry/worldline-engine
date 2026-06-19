@@ -25,6 +25,16 @@ void require(bool cond, const std::string& what) {
 
 bool color_eq(Color8 a, Color8 b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
 
+// L2 distance between two languages in the 15-D continuous style space.
+double lang_dist(const phon::Language& a, const phon::Language& b) {
+    double s = 0.0;
+    for (int i = 0; i < phon::S_N; ++i) {
+        const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
+        s += d * d;
+    }
+    return std::sqrt(s);
+}
+
 bool nodes_equal(const ProcNode& a, const ProcNode& b) {
     if (a.seed != b.seed || a.kind != b.kind || a.name != b.name) return false;
     if (!color_eq(a.color, b.color)) return false;
@@ -185,6 +195,33 @@ int main() {
         require(uni.cache_size() == 0, "reseed must clear the cache");
         const ProcNode r8 = uni.root();
         require(!nodes_equal(r7, r8), "reseed must change the universe");
+    }
+
+    // --- Lineage-coherent naming: a child's language drifts from its parent's,
+    //     so it is closer in style space to its parent than to an unrelated node,
+    //     and siblings are closer to each other than to a foreign family --------
+    {
+        ProcUniverse uni(0x11EA6E5Eull);
+        const ProcNode universe = uni.root();
+        require(!universe.children.empty(), "universe has galaxies");
+        const ProcNode galaxy = uni.node(universe.children.front().seed,
+                                         NodeKind::Galaxy, &universe);
+        const ProcNode foreign = uni.node(universe.children.back().seed,
+                                          NodeKind::Galaxy, &universe);
+        require(galaxy.children.size() >= 2, "galaxy has several systems");
+
+        const ProcNode s1 = uni.node(galaxy.children[0].seed, NodeKind::StarSystem, &galaxy);
+        const ProcNode s2 = uni.node(galaxy.children[1].seed, NodeKind::StarSystem, &galaxy);
+
+        // Each sibling is closer to its own galaxy than to a foreign galaxy.
+        require(lang_dist(s1.language, galaxy.language) < lang_dist(s1.language, foreign.language),
+                "a system's language is closer to its own galaxy than to a foreign one");
+        // Siblings are closer to each other than to the foreign family.
+        require(lang_dist(s1.language, s2.language) < lang_dist(s1.language, foreign.language),
+                "sibling systems share a family more than a foreign galaxy");
+        // The two galaxies are distinct languages (not a single bank).
+        require(lang_dist(galaxy.language, foreign.language) > 1e-3,
+                "different galaxies have distinct languages");
     }
 
     if (g_failures == 0) {

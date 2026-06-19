@@ -16,6 +16,7 @@
 
 #include "cosmos/Ecosystem.hpp"
 #include "cosmos/ObjectCatalog.hpp" // Color8
+#include "cosmos/Phonology.hpp"     // phon::Language (lineage naming)
 
 #include <cstdint>
 #include <list>
@@ -69,6 +70,12 @@ struct ProcNode {
     Color8 color;
     std::vector<std::pair<std::string, std::string>> facts; // inspector key/value stats
     std::vector<ChildRef> children;
+
+    // Lineage naming: the root seeds a phonetic family; each child drifts from
+    // its parent's language (derive_language), so a galaxy and its systems /
+    // planets / species share a recognizable name family. Set in generate()
+    // before naming. A node reached without a parent falls back to make_language.
+    phon::Language language;
 
     // Inter-level context (set per kind; propagates parent -> child generation).
     int    subtype = 0;          // star class / planet type / biome

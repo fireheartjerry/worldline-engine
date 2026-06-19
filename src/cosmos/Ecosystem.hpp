@@ -9,6 +9,7 @@
 // same (seed, biome) -> identical community.
 
 #include "cosmos/ObjectCatalog.hpp" // Color8
+#include "cosmos/Phonology.hpp"     // phon::Language (lineage naming)
 
 #include <cstdint>
 #include <string>
@@ -90,8 +91,12 @@ struct Community {
     BiomeParams          biome;
 };
 
-// Build a deterministic, balanced, co-adapted community for a biome.
-Community generate_community(std::uint64_t seed, const BiomeParams& biome);
+// Build a deterministic, balanced, co-adapted community for a biome. `lang`, if
+// given, is the ecosystem's lineage language so species names share the world's
+// phonetic family; nullptr falls back to a seed-derived language (used by direct
+// callers / tests, byte-identical to the pre-lineage behavior).
+Community generate_community(std::uint64_t seed, const BiomeParams& biome,
+                            const phon::Language* lang = nullptr);
 
 // Advance live population dynamics by dt (bounded, damped — never diverges).
 void step_community(Community& community, double dt);

@@ -101,7 +101,30 @@ struct Identity {
     float size = 0.5f;
 };
 
-Identity identity_for(NodeKind kind, std::uint64_t seed) {
+// Per-kind language drift when deriving a node from its parent (subtle, so a
+// lineage is recognizable but each level keeps its own character). Galaxies fan
+// out furthest from the universe root; same-level siblings stay tight.
+float drift_for(NodeKind kind) {
+    switch (kind) {
+    case NodeKind::Galaxy:     return 0.14f;
+    case NodeKind::StarSystem: return 0.06f;
+    case NodeKind::Planet:     return 0.05f;
+    case NodeKind::Ecosystem:  return 0.05f;
+    case NodeKind::Creature:   return 0.07f;
+    default:                   return 0.10f;
+    }
+}
+
+// A node's lineage language: derived from its parent's (so names share a family)
+// or, with no parent (root / bare node() call), an isolated language from seed.
+// Determinism holds because each seed has exactly one parent in the tree; the
+// contract is to always reach a child through its parent (descent_push does).
+phon::Language language_for(NodeKind kind, std::uint64_t seed, const ProcNode* parent) {
+    if (parent == nullptr) return phon::make_language(seed);
+    return phon::derive_language(parent->language, seed, drift_for(kind));
+}
+
+Identity identity_for(NodeKind kind, std::uint64_t seed, const phon::Language& lang) {
     Rng r(seed ^ (0xA24BAED4963EE407ull * (static_cast<std::uint64_t>(kind) + 1)));
     Identity id;
     switch (kind) {
@@ -111,29 +134,29 @@ Identity identity_for(NodeKind kind, std::uint64_t seed) {
         id.size = 1.0f;
         break;
     case NodeKind::Galaxy:
-        id.name = phon::generate_name(phon::make_language(seed), seed, 1.15f, 0.95f) +
+        id.name = phon::generate_name(lang, seed, 1.15f, 0.95f) +
                   ((galaxy_morph(seed) == 1) ? " Cloud" : " Galaxy");
         id.color = hsv8(r.range(0.52, 0.95), 0.32, 1.0);
         id.size = static_cast<float>(r.range(0.5, 1.0));
         break;
     case NodeKind::StarSystem:
-        id.name = phon::generate_name(phon::make_language(seed), seed, 0.85f, 0.8f) +
+        id.name = phon::generate_name(lang, seed, 0.85f, 0.8f) +
                   "-" + std::to_string(r.irange(1, 999));
         id.color = star_class_color(star_class_for(seed));
         id.size = static_cast<float>(r.range(0.45, 0.85));
         break;
     case NodeKind::Planet:
-        id.name = phon::generate_name(phon::make_language(seed), seed, 1.0f, 0.6f);
+        id.name = phon::generate_name(lang, seed, 1.0f, 0.6f);
         id.color = planet_type_color(planet_type(seed));
         id.size = static_cast<float>(r.range(0.3, 0.9));
         break;
     case NodeKind::Ecosystem:
-        id.name = phon::generate_name(phon::make_language(seed), seed, 0.9f, 0.4f) + " Biome";
+        id.name = phon::generate_name(lang, seed, 0.9f, 0.4f) + " Biome";
         id.color = hsv8(r.range(0.20, 0.45), 0.55, 0.88);
         id.size = static_cast<float>(r.range(0.5, 0.95));
         break;
     case NodeKind::Creature:
-        id.name = phon::generate_name(phon::make_language(seed), seed, 1.25f, 0.3f);
+        id.name = phon::generate_name(lang, seed, 1.25f, 0.3f);
         id.color = creature_role_color(creature_role(seed));
         id.size = static_cast<float>(r.range(0.25, 1.0));
         break;
@@ -155,7 +178,7 @@ void gen_universe(ProcNode& n, Rng& r) {
     add_fact(n, "Expansion", std::to_string(r.irange(60, 75)) + " km/s/Mpc");
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
-        const Identity id = identity_for(NodeKind::Galaxy, cs);
+        const Identity id = identity_for(NodeKind::Galaxy, cs, language_for(NodeKind::Galaxy, cs, &n));
         const double ang = r.f01() * kTau;
         const double rad = std::sqrt(r.f01());
         ChildRef c;
@@ -178,7 +201,7 @@ void gen_galaxy(ProcNode& n, Rng& r) {
     const int arms = 2 + static_cast<int>(salt(n.seed, 21) % 3);
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
-        const Identity id = identity_for(NodeKind::StarSystem, cs);
+        const Identity id = identity_for(NodeKind::StarSystem, cs, language_for(NodeKind::StarSystem, cs, &n));
         const double t = static_cast<double>(i) / std::max(1, count - 1);
         double x, y;
         if (morph == 0) { // spiral
@@ -227,7 +250,7 @@ void gen_starsystem(ProcNode& n, Rng& r) {
     const double base_au = 0.25 * std::sqrt(std::max(0.02, lum));
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
-        const Identity id = identity_for(NodeKind::Planet, cs);
+        const Identity id = identity_for(NodeKind::Planet, cs, language_for(NodeKind::Planet, cs, &n));
         const double au = base_au * std::pow(1.6, i) * r.range(0.9, 1.1);
         const bool rocky = planet_type(cs) == 0 || planet_type(cs) == 1 || planet_type(cs) == 5;
         const bool in_hz = astro::in_habitable_zone(au, lum);
@@ -308,7 +331,7 @@ void gen_planet(ProcNode& n, Rng& r, const ProcNode* parent) {
                    std::to_string(count) + " biomes.";
     for (int i = 0; i < count; ++i) {
         const std::uint64_t cs = child_seed(n.seed, static_cast<std::uint64_t>(i));
-        const Identity id = identity_for(NodeKind::Ecosystem, cs);
+        const Identity id = identity_for(NodeKind::Ecosystem, cs, language_for(NodeKind::Ecosystem, cs, &n));
         const double ang = (static_cast<double>(i) / count) * kTau + r.range(-0.2, 0.2);
         const double rad = r.range(0.45, 0.9);
         ChildRef c;
@@ -329,7 +352,9 @@ eco::Community ecosystem_community(const ProcNode& eco_node) {
     const astro::Biome biome = astro::biome_for(b.temp_c, b.precip_mm);
     b.npp = astro::npp_for(biome);
     b.aquatic = (biome == astro::Biome::Ocean);
-    return eco::generate_community(eco_node.seed, b);
+    // Pass the ecosystem's lineage language so species names share the world's
+    // phonetic family (and creature preview == creature full node).
+    return eco::generate_community(eco_node.seed, b, &eco_node.language);
 }
 
 void gen_ecosystem(ProcNode& n, Rng& r, const ProcNode* parent) {
@@ -485,7 +510,8 @@ ProcNode ProcUniverse::generate(std::uint64_t seed, NodeKind kind, const ProcNod
     ProcNode n;
     n.seed = seed;
     n.kind = kind;
-    const Identity id = identity_for(kind, seed);
+    n.language = language_for(kind, seed, parent); // lineage family (before naming)
+    const Identity id = identity_for(kind, seed, n.language);
     n.name = id.name;
     n.color = id.color;
     Rng r(salt(seed, 7)); // independent stream for layout/facts

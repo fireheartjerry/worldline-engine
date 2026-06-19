@@ -49,7 +49,8 @@ double role_hue(double tau) {
     return (t < 0.5) ? lerp(0.33, 0.58, t / 0.5) : lerp(0.58, 1.0, (t - 0.5) / 0.5);
 }
 
-Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
+Community generate_community(std::uint64_t seed, const BiomeParams& biome,
+                            const phon::Language* lang) {
     Community C;
     C.biome = biome;
     Stream rng(seed, 0xEC051Bull);
@@ -262,10 +263,13 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome) {
     C.stats.stability_margin = 1.0 - sigma * std::sqrt(static_cast<double>(S) * Cc);
 
     // ── 7. Names + continuous role colors ─────────────────────────────────────
-    const phon::Language lang = phon::make_language(seed ^ 0x5EC0DEull);
+    // Lineage language (so creatures sound like their world) or a seed-derived
+    // fallback for direct callers. The per-species mix2 keeps intra-community
+    // variety either way.
+    const phon::Language base = lang ? *lang : phon::make_language(seed ^ 0x5EC0DEull);
     for (int i = 0; i < S; ++i) {
         Species& s = sp[static_cast<std::size_t>(i)];
-        s.name = phon::generate_name(lang, mix2(seed, static_cast<std::uint64_t>(i) + 1), 1.2f, 0.3f);
+        s.name = phon::generate_name(base, mix2(seed, static_cast<std::uint64_t>(i) + 1), 1.2f, 0.3f);
         s.color = hsv8(role_hue(s.t.tau), 0.5 + 0.4 * s.t.defense, 0.92);
     }
 
