@@ -2,16 +2,80 @@
 
 #include "raylib.h"
 #include "app/AppTypes.hpp"
+#include "cosmos/EcoSim.hpp"
 #include "cosmos/LawGenome.hpp"
 #include "cosmos/NBodySystem.hpp"
 #include "cosmos/ObjectCatalog.hpp"
+#include "cosmos/ProcUniverse.hpp"
 #include "cosmos/ScaleLadder.hpp"
 #include "cosmos/Universe.hpp"
 
+#include <memory>
 #include <string>
 #include <vector>
 
 class Renderer;
+
+// 2D navigation camera for the sandbox stage: an animated zoom + pan that also
+// flows continuously through the scale ladder (zoom in past a tier -> drop to the
+// next-smaller tier; zoom out past it -> rise to the next-larger one).
+struct CosmosCamera {
+    double zoom = 1.0;          // applied zoom (animated toward target)
+    double target_zoom = 1.0;   // input target
+    Vec2 pan{};                 // applied world-space center offset (animated)
+    Vec2 target_pan{};          // input target
+    float flash = 0.0f;         // tier-transition highlight, fades to 0
+    bool dragging = false;
+    bool primed = false;        // whether the stage has been auto-populated once
+};
+
+// Descent navigation: a path from the universe root down to the node currently
+// in focus, driven by the procedural engine. Path entries are COPIES (the
+// engine's node() reference can be invalidated by a later call via LRU eviction).
+struct DescentState {
+    std::unique_ptr<cosmos::ProcUniverse> universe; // root seed = genome.signature
+    std::uint64_t root_seed = 0;                     // for reseed detection
+    std::vector<cosmos::ProcNode> path;              // root .. focus (back() = focus)
+    int hovered_child = -1;                           // index into focus().children
+    CosmosCamera camera;                              // reuse zoom/pan/flash machinery
+    float transition = 0.0f;                          // enter/leave animation envelope
+    int transition_dir = 0;                           // +1 descending, -1 ascending
+    bool initialized = false;
+
+    // Live ecosystem simulation: built when entering an Ecosystem node and advanced
+    // with a fixed timestep (FPS-independent, deterministic) so the food web breathes
+    // smoothly; carries population history for the observability sparklines.
+    cosmos::ecosim::LiveSim live;
+    std::uint64_t live_seed = 0;
+
+    // Single per-frame layout pass: child screen positions, reused by hover, pick,
+    // food-web links, and sprites (avoids 3-4x redundant recomputation).
+    std::vector<float> child_px;
+    std::vector<float> child_py;
+    int hover_locked = -1;   // hover hysteresis (prevents flip-flop near ties)
+    bool analysis_open = true; // tier scientific-instrument deck (toggle with G)
+
+    // ── Navigation shell: a keyboard-driven selection cursor (independent of the
+    //    mouse) so every node is reachable precisely; arrows move it directionally,
+    //    Tab cycles, Enter enters, [ ] cycle siblings, number keys jump, Home roots.
+    int selected_child = -1;
+
+    // ── Simulation interior: granular time control so the full behaviour space is
+    //    observable — pause to study, scrub speed to reach long-term cycles, step
+    //    one tick, perturb a population and watch it recover. A focused species is
+    //    cross-highlighted everywhere (web, sparklines, deck).
+    bool   sim_paused = false;
+    double sim_speed = 1.0;     // 0.25 .. 16x time dilation
+    bool   sim_step_once = false;
+    int    focus_species = -1;  // selected species for cross-highlight / perturbation
+    double perturb_flash = 0.0; // brief visual cue after a perturbation
+
+    const cosmos::ProcNode& focus() const { return path.back(); }
+    cosmos::NodeKind focus_kind() const {
+        return path.empty() ? cosmos::NodeKind::Universe : path.back().kind;
+    }
+    int depth() const { return static_cast<int>(path.size()) - 1; } // 0 at universe
+};
 
 // All state for the Cosmos Explorer: the universe's law genome, the object
 // catalog specialized to it, the currently selected scale tier, and a live
@@ -36,6 +100,9 @@ struct CosmosState {
     double elapsed = 0.0;
     bool browser_open = false;  // saved-sandbox browser modal
     bool dossier_open = false;  // generation report overlay
+    CosmosCamera camera;        // 2D navigation (zoom/pan) for the legacy tier sandbox
+    bool descent_mode = true;   // descend-into-instances navigation (vs legacy tiers)
+    DescentState descent;       // procedural descent navigation state
 
     // Configure (or reconfigure) for a seed: build the genome + specialized
     // catalog. Cheap and deterministic.

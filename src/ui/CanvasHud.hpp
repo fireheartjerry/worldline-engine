@@ -148,8 +148,15 @@ inline void draw_force_inspector(const CanvasOverlayView& view,
     const float header_height      =  62.0f * s;
     const Rectangle card = hud.inspector;
 
-    // Main inspector card — cyan-bordered
-    draw_card(card, WL::GLASS_2, with_alpha(WL::CYAN_DIM, 110));
+    // Main inspector card — cyan-bordered glass with HUD framing
+    draw_card(card, WL::GLASS_2, with_alpha(WL::CYAN_DIM, 130));
+    draw_corner_brackets(card, with_alpha(WL::CYAN_CORE, 170), 13.0f * s, 1.6f, 5.0f * s);
+
+    // Slow scan sweep — a single faint line travelling down the pane.
+    const float sweep = 0.5f + 0.5f * std::sin(ui_time() * 0.7f);
+    const float sweep_y = card.y + header_height + sweep * (card.height - header_height - 8.0f * s);
+    DrawLineEx({card.x + 10.0f * s, sweep_y}, {card.x + card.width - 10.0f * s, sweep_y},
+               1.0f, with_alpha(WL::CYAN_CORE, 26));
 
     // Header
     draw_text("Force Inspector",
@@ -160,6 +167,10 @@ inline void draw_force_inspector(const CanvasOverlayView& view,
               {card.x + 14.0f * s, card.y + 36.0f * s},
               13.0f * s,
               WL::TEXT_TERTIARY);
+    // Live indicator dot, top-right of header
+    const float dot = 0.5f + 0.5f * std::sin(ui_time() * 3.0f);
+    DrawCircleV({card.x + card.width - 18.0f * s, card.y + 20.0f * s}, 3.4f * s,
+                with_alpha(WL::PLASMA_GREEN, static_cast<unsigned char>(140 + 110 * dot)));
     // Thin header separator
     DrawLineEx({card.x + 10, card.y + header_height - 4},
                {card.x + card.width - 10, card.y + header_height - 4},
@@ -226,7 +237,13 @@ inline void draw_canvas_overlay(const CanvasOverlayView& view,
 
     // ── Title bar ─────────────────────────────────────────────────────────────
     const Rectangle tb = hud.title_bar;
-    draw_card(tb, WL::GLASS_1, with_alpha(WL::CYAN_DIM, 100));
+    draw_card(tb, WL::GLASS_1, with_alpha(WL::CYAN_DIM, 120));
+    draw_corner_brackets(tb, with_alpha(WL::CYAN_CORE, 160), 11.0f * s, 1.5f, 4.0f * s);
+
+    // Live status dot beside the wordmark
+    const float tb_pulse = 0.5f + 0.5f * std::sin(ui_time() * 2.4f);
+    DrawCircleV({tb.x + tb.width - 16.0f * s, tb.y + 16.0f * s}, 3.2f * s,
+                with_alpha(WL::CYAN_CORE, static_cast<unsigned char>(130 + 110 * tb_pulse)));
 
     // Brand wordmark — two-tone
     draw_text("WORLDLINE",

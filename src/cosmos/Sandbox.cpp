@@ -145,7 +145,10 @@ void populate_sandbox(NBodySystem& sys,
             break;
         case Scale::PLANETARY:
         case Scale::STELLAR:
-            // Orbital support: Keplerian-ish circular speed with dispersion.
+            // Orbital support: mean-field circular speed v = k*sqrt(G*M/r), using
+            // the total cloud mass as a fixed central mass (a deliberate
+            // approximation — not the enclosed mass M(<r) of a true rotation
+            // curve, which would require an O(N^2) interior sum per body).
             b.vel = tang * (drift_sign * orbit_k *
                             std::sqrt(sys.params.gravity * total_mass / std::max(r, 1.0)));
             if (scale == Scale::STELLAR) {

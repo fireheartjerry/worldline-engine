@@ -48,6 +48,8 @@ add_library(worldline_cosmos
     src/cosmos/Analysis.cpp
     src/cosmos/Universe.cpp
     src/cosmos/ObserverFleet.cpp
+    src/cosmos/ProcUniverse.cpp
+    src/cosmos/Ecosystem.cpp
     src/cosmos/Nav3D.cpp
 )
 target_include_directories(worldline_cosmos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -60,6 +62,7 @@ add_library(worldline_app
     src/app/UniverseProject.cpp
     src/app/WorldlineCopy.cpp
     src/app/WorldlineStorage.cpp
+    src/app/WorldlineStorageSettings.cpp
 )
 target_include_directories(worldline_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(worldline_app PUBLIC worldline_seed worldline_physics worldline_cosmos)
@@ -68,8 +71,11 @@ worldline_apply_warnings(worldline_app)
 add_executable(worldline
     src/main.cpp
     src/ui/CosmosExplorerScene.cpp
+    src/ui/CosmosExplorerPanels.cpp
+    src/ui/CosmosDescent.cpp
     src/ui/GuidedFirstUniverseScene.cpp
     src/ui/SeedWorkspaceScene.cpp
+    src/ui/SeedWorkspacePanels.cpp
     src/ui/TraceScene.cpp
     src/ui/UniverseAtlasScene.cpp
 )
@@ -118,6 +124,114 @@ target_include_directories(worldline_cosmos_universe_tests PRIVATE ${CMAKE_CURRE
 target_link_libraries(worldline_cosmos_universe_tests PRIVATE worldline_cosmos)
 worldline_apply_warnings(worldline_cosmos_universe_tests)
 add_test(NAME cosmos_universe_verification COMMAND worldline_cosmos_universe_tests)
+
+add_executable(worldline_cosmos_orbits_tests tests/cosmos_orbits_verification.cpp)
+target_include_directories(worldline_cosmos_orbits_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_orbits_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_orbits_tests)
+add_test(NAME cosmos_orbits_verification COMMAND worldline_cosmos_orbits_tests)
+
+add_executable(worldline_cosmos_procgen_tests tests/cosmos_procgen_verification.cpp)
+target_include_directories(worldline_cosmos_procgen_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_procgen_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_procgen_tests)
+add_test(NAME cosmos_procgen_verification COMMAND worldline_cosmos_procgen_tests)
+
+add_executable(worldline_cosmos_astrobio_tests tests/cosmos_astrobio_verification.cpp)
+target_include_directories(worldline_cosmos_astrobio_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_astrobio_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_astrobio_tests)
+add_test(NAME cosmos_astrobio_verification COMMAND worldline_cosmos_astrobio_tests)
+
+add_executable(worldline_cosmos_phonology_tests tests/cosmos_phonology_verification.cpp)
+target_include_directories(worldline_cosmos_phonology_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_phonology_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_phonology_tests)
+add_test(NAME cosmos_phonology_verification COMMAND worldline_cosmos_phonology_tests)
+
+add_executable(worldline_cosmos_ecosystem_tests tests/cosmos_ecosystem_verification.cpp)
+target_include_directories(worldline_cosmos_ecosystem_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_ecosystem_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_ecosystem_tests)
+add_test(NAME cosmos_ecosystem_verification COMMAND worldline_cosmos_ecosystem_tests)
+
+add_executable(worldline_cosmos_physics_tests tests/cosmos_physics_verification.cpp)
+target_include_directories(worldline_cosmos_physics_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_physics_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_physics_tests)
+add_test(NAME cosmos_physics_verification COMMAND worldline_cosmos_physics_tests)
+
+add_executable(worldline_cosmos_organism_tests tests/cosmos_organism_verification.cpp)
+target_include_directories(worldline_cosmos_organism_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_organism_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_organism_tests)
+add_test(NAME cosmos_organism_verification COMMAND worldline_cosmos_organism_tests)
+
+add_executable(worldline_cosmos_scaleinfra_tests tests/cosmos_scaleinfra_verification.cpp)
+target_include_directories(worldline_cosmos_scaleinfra_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_scaleinfra_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_scaleinfra_tests)
+add_test(NAME cosmos_scaleinfra_verification COMMAND worldline_cosmos_scaleinfra_tests)
+
+add_executable(worldline_cosmos_demography_tests tests/cosmos_demography_verification.cpp)
+target_include_directories(worldline_cosmos_demography_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_demography_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_demography_tests)
+add_test(NAME cosmos_demography_verification COMMAND worldline_cosmos_demography_tests)
+
+add_executable(worldline_cosmos_phylogeny_tests tests/cosmos_phylogeny_verification.cpp)
+target_include_directories(worldline_cosmos_phylogeny_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_phylogeny_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_phylogeny_tests)
+add_test(NAME cosmos_phylogeny_verification COMMAND worldline_cosmos_phylogeny_tests)
+
+add_executable(worldline_cosmos_phenology_tests tests/cosmos_phenology_verification.cpp)
+target_include_directories(worldline_cosmos_phenology_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_phenology_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_phenology_tests)
+add_test(NAME cosmos_phenology_verification COMMAND worldline_cosmos_phenology_tests)
+
+add_executable(worldline_cosmos_particledata_tests tests/cosmos_particledata_verification.cpp)
+target_include_directories(worldline_cosmos_particledata_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_particledata_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_particledata_tests)
+add_test(NAME cosmos_particledata_verification COMMAND worldline_cosmos_particledata_tests)
+
+add_executable(worldline_cosmos_cosmostats_tests tests/cosmos_cosmostats_verification.cpp)
+target_include_directories(worldline_cosmos_cosmostats_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_cosmostats_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_cosmostats_tests)
+add_test(NAME cosmos_cosmostats_verification COMMAND worldline_cosmos_cosmostats_tests)
+
+add_executable(worldline_cosmos_interactions_tests tests/cosmos_interactions_verification.cpp)
+target_include_directories(worldline_cosmos_interactions_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_interactions_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_interactions_tests)
+add_test(NAME cosmos_interactions_verification COMMAND worldline_cosmos_interactions_tests)
+
+add_executable(worldline_cosmos_biogeography_tests tests/cosmos_biogeography_verification.cpp)
+target_include_directories(worldline_cosmos_biogeography_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_biogeography_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_biogeography_tests)
+add_test(NAME cosmos_biogeography_verification COMMAND worldline_cosmos_biogeography_tests)
+
+add_executable(worldline_cosmos_chemistry_tests tests/cosmos_chemistry_verification.cpp)
+target_include_directories(worldline_cosmos_chemistry_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_chemistry_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_chemistry_tests)
+add_test(NAME cosmos_chemistry_verification COMMAND worldline_cosmos_chemistry_tests)
+
+add_executable(worldline_cosmos_ecosim_tests tests/cosmos_ecosim_verification.cpp)
+target_include_directories(worldline_cosmos_ecosim_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_ecosim_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_ecosim_tests)
+add_test(NAME cosmos_ecosim_verification COMMAND worldline_cosmos_ecosim_tests)
+
+add_executable(worldline_cosmos_cosmography_tests tests/cosmos_cosmography_verification.cpp)
+target_include_directories(worldline_cosmos_cosmography_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_cosmography_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_cosmography_tests)
+add_test(NAME cosmos_cosmography_verification COMMAND worldline_cosmos_cosmography_tests)
 
 install(TARGETS worldline RUNTIME DESTINATION .)
 install(FILES README.md LICENSE DESTINATION .)
