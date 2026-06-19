@@ -2,6 +2,7 @@
 
 #include "cosmos/Astrobio.hpp"
 #include "cosmos/Ecosystem.hpp"
+#include "cosmos/Organism.hpp"
 #include "cosmos/Phonology.hpp"
 
 #include <array>
@@ -425,7 +426,17 @@ void gen_creature(ProcNode& n, Rng& r, const ProcNode* parent) {
             add_fact(n, "Trophic level", fmt_g(s.t.tau, 2));
             add_fact(n, "Body mass", s.mass_kg < 1.0 ? fmt_g(s.mass_kg * 1000.0, 2) + " g"
                                                      : fmt_g(s.mass_kg, 2) + " kg");
-            add_fact(n, "Metabolism", fmt_g(s.t.kappa * std::pow(std::max(1e-9, s.mass_kg), 0.75), 2) + " (rel.)");
+            // Full organism physiology from the Metabolic Theory of Ecology.
+            const bio::Organism org = bio::derive_organism(s.t, s.t.T_opt);
+            add_fact(n, "Metabolism (BMR)", fmt_g(org.bmr_w, 2) + " W");
+            add_fact(n, "Thermoregulation", org.endothermy > 0.66 ? "endotherm"
+                                          : (org.endothermy < 0.33 ? "ectotherm" : "mesotherm"));
+            add_fact(n, "Lifespan", fmt_g(org.lifespan_yr, 2) + " yr");
+            add_fact(n, "Maturity age", fmt_g(org.age_maturity_yr, 2) + " yr");
+            add_fact(n, "Max speed", fmt_g(org.speed_ms, 2) + " m/s");
+            add_fact(n, "Home range", org.home_range_m2 > 1.0e6
+                         ? fmt_g(org.home_range_m2 / 1.0e6, 2) + " km^2"
+                         : fmt_g(org.home_range_m2, 2) + " m^2");
             add_fact(n, "Population", fmt_g(s.population, 2));
             add_fact(n, "Thermal optimum", fmt_g(s.t.T_opt, 3) + " C");
             add_fact(n, "Activity", s.t.phi < 0.25 || s.t.phi > 0.75 ? "diurnal" : "nocturnal");

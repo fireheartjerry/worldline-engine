@@ -161,6 +161,12 @@ target_link_libraries(worldline_cosmos_physics_tests PRIVATE worldline_cosmos)
 worldline_apply_warnings(worldline_cosmos_physics_tests)
 add_test(NAME cosmos_physics_verification COMMAND worldline_cosmos_physics_tests)
 
+add_executable(worldline_cosmos_organism_tests tests/cosmos_organism_verification.cpp)
+target_include_directories(worldline_cosmos_organism_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_cosmos_organism_tests PRIVATE worldline_cosmos)
+worldline_apply_warnings(worldline_cosmos_organism_tests)
+add_test(NAME cosmos_organism_verification COMMAND worldline_cosmos_organism_tests)
+
 install(TARGETS worldline RUNTIME DESTINATION .)
 install(FILES README.md LICENSE DESTINATION .)
 
