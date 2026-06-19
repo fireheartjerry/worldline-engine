@@ -48,9 +48,10 @@ inline double annual_mean_insolation(double latitude_deg) {
     const double s = std::sin(deg2rad(latitude_deg));
     const double p2 = (3.0 * s * s - 1.0) * 0.5;
     const double raw = 1.0 - 0.482 * p2;          // max at equator (s=0): 1.241
-    const double lo = 1.0 - 0.482 * 1.0;           // pole (s^2=1, p2=1): 0.518
     const double hi = 1.0 - 0.482 * (-0.5);        // equator (p2=-0.5):   1.241
-    return clampd((raw - lo) / (hi - lo), 0.0, 1.0);
+    // Normalize by the equatorial maximum: equator -> 1, pole -> ~0.42 (the pole
+    // still receives a substantial, strictly positive annual insolation).
+    return clampd(raw / hi, 0.0, 1.0);
 }
 
 // Build a region's annual climate from its base (equatorial) temperature, its
@@ -64,7 +65,11 @@ inline Climate region_climate(double base_temp_c, double latitude_deg,
     // Mean temperature falls from base at the equator to base-40 at the poles,
     // following the annual-mean insolation gradient.
     const double ins = annual_mean_insolation(latitude_deg);
-    const double mean = lerp(base_temp_c - 40.0, base_temp_c, ins);
+    // Remap the [pole..equator] insolation band to [0,1] for the thermal gradient
+    // so the equator stays at base and the pole reaches base-40.
+    const double ins_pole = (1.0 - 0.482) / (1.0 - 0.482 * (-0.5)); // ~0.417
+    const double grad = clampd((ins - ins_pole) / (1.0 - ins_pole), 0.0, 1.0);
+    const double mean = lerp(base_temp_c - 40.0, base_temp_c, grad);
 
     // Seasonal swing grows with latitude and continentality: high-latitude
     // continental interiors swing the most; tropical maritime regions the least.
