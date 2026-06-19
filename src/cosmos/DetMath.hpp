@@ -76,6 +76,12 @@ inline double log(double x) {
     return static_cast<double>(e) * kLn2Hi + (log_m + static_cast<double>(e) * kLn2Lo);
 }
 
+// log10(x) = log(x) / ln(10).
+inline constexpr double kLog10e = 4.34294481903251827651e-01; // 1/ln(10)
+inline double log10(double x) {
+    return detmath::log(x) * kLog10e;
+}
+
 // pow(x, y) for x > 0: x^y = exp(y log x). (The simulation only ever raises
 // strictly positive bases -- softened squared distances and radii sums.)
 inline double pow(double x, double y) {

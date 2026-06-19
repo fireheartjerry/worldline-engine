@@ -6,6 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 enable_testing()
 
+# The seeded universe and the N-body sandbox must be bit-reproducible across
+# compilers and platforms (see cosmos/DetMath.hpp). Disable floating-point
+# contraction so an expression like a*b+c is never silently fused into a single
+# fma() on one compiler (e.g. Clang/ARM) but not another (GCC) -- that fusion
+# changes the last bit and, amplified over hundreds of chaotic integration
+# steps, makes the simulation diverge between platforms. MSVC does not contract
+# under its default /fp:precise, so no flag is needed there.
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-ffp-contract=off)
+endif()
+
 function(worldline_apply_warnings target_name)
     if (MSVC)
         target_compile_options(${target_name} PRIVATE /W4 /permissive-)
