@@ -26,19 +26,19 @@ namespace {
 
 int g_failures = 0;
 
-void check(bool cond, const std::string& what) {
+void check(bool cond, const std::string &what) {
     if (!cond) {
         std::cerr << "cosmos_quantum_verification FAILED: " << what << "\n";
         ++g_failures;
     }
 }
 
-void close(double got, double want, double rel, const std::string& what) {
+void close(double got, double want, double rel, const std::string &what) {
     const double denom = std::abs(want) > 0.0 ? std::abs(want) : 1.0;
     const double err = std::abs(got - want) / denom;
     if (err > rel) {
-        std::cerr << "cosmos_quantum_verification FAILED: " << what
-                  << " got=" << got << " want=" << want << " rel=" << err << "\n";
+        std::cerr << "cosmos_quantum_verification FAILED: " << what << " got=" << got
+                  << " want=" << want << " rel=" << err << "\n";
         ++g_failures;
     }
 }
@@ -48,16 +48,14 @@ void close(double got, double want, double rel, const std::string& what) {
 int main() {
     // --- Constants self-consistency -----------------------------------------
     // m_p / m_e must reproduce the stored dimensionless ratio.
-    close(proton_mass_kg / electron_mass_kg, proton_electron_mass_ratio, 1e-5,
-          "m_p/m_e ~ 1836.15");
+    close(proton_mass_kg / electron_mass_kg, proton_electron_mass_ratio, 1e-5, "m_p/m_e ~ 1836.15");
     check(neutron_mass_kg > proton_mass_kg, "m_n > m_p (free neutron can decay)");
     check(electron_volt_J == e, "1 eV == elementary charge (numerically, by definition)");
 
     // Bohr radius and Rydberg energy re-derived from m_e, c, alpha must match the
     // stored CODATA anchors.
     close(bohr_radius_derived_m(), bohr_radius_m, 1e-4, "a_0 = hbar/(m_e c alpha)");
-    close(rydberg_energy_derived_J(), rydberg_energy_J, 1e-4,
-          "Ry = alpha^2 m_e c^2 / 2");
+    close(rydberg_energy_derived_J(), rydberg_energy_J, 1e-4, "Ry = alpha^2 m_e c^2 / 2");
 
     // --- Planck units: derived == stored ------------------------------------
     const PlanckUnits pu = planck_units();
@@ -68,8 +66,7 @@ int main() {
     close(pu.temperature_K, planck_temp_K, 1e-4, "Planck temperature derived");
 
     // The Planck length is the floor of scale.
-    check(in_planck_lengths(planck_length_m) > 0.99 &&
-              in_planck_lengths(planck_length_m) < 1.01,
+    check(in_planck_lengths(planck_length_m) > 0.99 && in_planck_lengths(planck_length_m) < 1.01,
           "l_P measures 1 Planck length");
     check(above_planck_floor(1.0e-30), "1e-30 m is above the Planck floor");
     check(!above_planck_floor(1.0e-40), "1e-40 m is below the Planck floor");
@@ -79,17 +76,16 @@ int main() {
     close(rest_energy_mev(electron_mass_kg), 0.5109989, 1e-3, "m_e c^2 = 0.511 MeV");
     close(rest_energy_mev(proton_mass_kg), 938.272, 1e-3, "m_p c^2 = 938.27 MeV");
     // Round-trip mass <-> energy.
-    close(mass_from_energy_mev(rest_energy_mev(electron_mass_kg)), electron_mass_kg,
-          1e-9, "mass<->energy round trip");
+    close(mass_from_energy_mev(rest_energy_mev(electron_mass_kg)), electron_mass_kg, 1e-9,
+          "mass<->energy round trip");
     // Relativistic energy reduces to rest energy at p=0 and to p c for m=0.
-    close(relativistic_energy_J(electron_mass_kg, 0.0), rest_energy_J(electron_mass_kg),
-          1e-12, "E(p=0) = m c^2");
+    close(relativistic_energy_J(electron_mass_kg, 0.0), rest_energy_J(electron_mass_kg), 1e-12,
+          "E(p=0) = m c^2");
     close(relativistic_energy_J(0.0, 5.0), 5.0 * c, 1e-12, "E(m=0) = p c");
 
     // --- Compton & de Broglie wavelengths -----------------------------------
     // Electron Compton wavelength = 2.426e-12 m; reduced = 3.862e-13 m.
-    close(compton_wavelength_m(electron_mass_kg), 2.42631e-12, 1e-3,
-          "electron Compton wavelength");
+    close(compton_wavelength_m(electron_mass_kg), 2.42631e-12, 1e-3, "electron Compton wavelength");
     close(reduced_compton_wavelength_m(electron_mass_kg), 3.8616e-13, 1e-3,
           "electron reduced Compton wavelength");
     // lambda_C = 2 pi * lambdabar_C.
@@ -118,11 +114,10 @@ int main() {
     // Schwarzschild radius scales linearly with mass and is tiny for the Sun-ish
     // test mass; a 1 Msun (~2e30 kg) hole is ~2.95 km.
     close(schwarzschild_radius_m(1.989e30), 2950.0, 2e-2, "r_s(1 Msun) ~ 2.95 km");
-    check(schwarzschild_radius_m(2.0e30) > schwarzschild_radius_m(1.0e30),
-          "r_s grows with mass");
+    check(schwarzschild_radius_m(2.0e30) > schwarzschild_radius_m(1.0e30), "r_s grows with mass");
     // The Compton-Schwarzschild crossover sits at the Planck mass / sqrt(2).
-    close(compton_schwarzschild_crossover_mass_kg(), planck_mass_kg / std::sqrt(2.0),
-          1e-3, "Compton=Schwarzschild crossover = m_P/sqrt(2)");
+    close(compton_schwarzschild_crossover_mass_kg(), planck_mass_kg / std::sqrt(2.0), 1e-3,
+          "Compton=Schwarzschild crossover = m_P/sqrt(2)");
     // Hawking temperature: smaller holes are hotter; a Planck-mass hole ~ T_P/(8 pi).
     check(hawking_temperature_K(1.0e30) < hawking_temperature_K(1.0e29),
           "smaller black holes are hotter");
@@ -136,8 +131,7 @@ int main() {
     close(bohr_radius_m * dp, 0.5 * hbar, 1e-9, "dx*dp_min saturates hbar/2");
     check(satisfies_uncertainty(bohr_radius_m, dp), "saturated pair satisfies bound");
     check(satisfies_uncertainty(bohr_radius_m, 2.0 * dp), "looser pair satisfies bound");
-    check(!satisfies_uncertainty(bohr_radius_m, 0.4 * dp),
-          "over-tight pair violates bound");
+    check(!satisfies_uncertainty(bohr_radius_m, 0.4 * dp), "over-tight pair violates bound");
     // Energy-time form: a shorter window allows a larger energy spread.
     check(min_energy_uncertainty_J(1.0e-21) > min_energy_uncertainty_J(1.0e-18),
           "shorter dt -> larger dE");
@@ -146,19 +140,17 @@ int main() {
     const double omega = 1.0e15; // rad/s, optical-ish
     close(qho_level_energy_J(0, omega), qho_zero_point_energy_J(omega), 1e-12,
           "E_0 = zero-point energy");
-    close(qho_zero_point_energy_J(omega), 0.5 * hbar * omega, 1e-12,
-          "zero-point = hbar omega / 2");
+    close(qho_zero_point_energy_J(omega), 0.5 * hbar * omega, 1e-12, "zero-point = hbar omega / 2");
     // Levels are evenly spaced by hbar omega.
-    close(qho_level_energy_J(3, omega) - qho_level_energy_J(2, omega), hbar * omega,
-          1e-12, "QHO levels spaced by hbar omega");
+    close(qho_level_energy_J(3, omega) - qho_level_energy_J(2, omega), hbar * omega, 1e-12,
+          "QHO levels spaced by hbar omega");
     check(qho_level_energy_J(0, omega) > 0.0, "vacuum still carries zero-point energy");
 
     // --- Bohr / hydrogen ----------------------------------------------------
     // Ground state -13.6 eV; energy rises toward 0 with n.
     close(hydrogen_level_energy_ev(1), -13.6057, 1e-3, "H ground state -13.6 eV");
     close(hydrogen_level_energy_ev(2), -3.4014, 2e-3, "H n=2 = -3.40 eV");
-    check(hydrogen_level_energy_ev(2) > hydrogen_level_energy_ev(1),
-          "H energy rises with n");
+    check(hydrogen_level_energy_ev(2) > hydrogen_level_energy_ev(1), "H energy rises with n");
     // Lyman-alpha (2->1) ~ 10.2 eV; Balmer-alpha (3->2) ~ 1.89 eV.
     close(hydrogen_transition_ev(1, 2), 10.204, 2e-3, "Lyman-alpha ~ 10.2 eV");
     close(hydrogen_transition_ev(2, 3), 1.889, 3e-3, "Balmer-alpha ~ 1.89 eV");
@@ -192,8 +184,7 @@ int main() {
     check(pd::is_quark(pd::Particle::Up) && pd::is_quark(pd::Particle::Top),
           "up and top are quarks");
     check(!pd::is_quark(pd::Particle::Electron), "electron is not a quark");
-    check(pd::is_charged_lepton(pd::Particle::Electron) &&
-              pd::is_charged_lepton(pd::Particle::Tau),
+    check(pd::is_charged_lepton(pd::Particle::Electron) && pd::is_charged_lepton(pd::Particle::Tau),
           "electron and tau are charged leptons");
     check(pd::is_neutrino(pd::Particle::NeutrinoMu), "nu_mu is a neutrino");
     check(pd::is_lepton(pd::Particle::Electron) && pd::is_lepton(pd::Particle::NeutrinoE),
@@ -213,8 +204,7 @@ int main() {
     // Colour charge is carried only by quarks and the gluon (confinement).
     check(pd::carries_colour(pd::Particle::Up) && pd::carries_colour(pd::Particle::Gluon),
           "quarks and gluon carry colour");
-    check(!pd::carries_colour(pd::Particle::Electron) &&
-              !pd::carries_colour(pd::Particle::Photon),
+    check(!pd::carries_colour(pd::Particle::Electron) && !pd::carries_colour(pd::Particle::Photon),
           "electron and photon are colourless");
 
     // Stability: lightest matter + massless bosons are stable; heavy ones decay.
@@ -232,8 +222,7 @@ int main() {
           "Compton deterministic");
 
     if (g_failures != 0) {
-        std::cerr << "cosmos_quantum_verification: " << g_failures
-                  << " check(s) failed\n";
+        std::cerr << "cosmos_quantum_verification: " << g_failures << " check(s) failed\n";
         return EXIT_FAILURE;
     }
     std::cout << "cosmos_quantum_verification: all checks passed\n";

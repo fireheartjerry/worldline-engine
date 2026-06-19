@@ -96,14 +96,35 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
   plus a wormhole, up to galaxies and the cosmic web and its voids
 - real SI anchors that drive computed physics in the inspector — density,
   Schwarzschild radius, escape velocity, and compactness derived from `G` and `c`
-- a research-grounded quantum & Planck-scale instrument set for the smallest tier
-  (`cosmos/QuantumScale.hpp`): Planck units re-derived from `hbar`/`c`/`G`, Compton
-  and de Broglie / thermal wavelengths, the Compton–Schwarzschild crossover that
-  motivates the Planck-mass floor, Heisenberg bounds, the quantum harmonic
-  oscillator, the Bohr/hydrogen energy ladder (13.6 eV ground state, Lyman/Balmer
-  lines), and particle decay width ↔ lifetime — surfaced live in the inspector so
-  subatomic objects read out rest energy (MeV), Compton wavelength and their size
-  in Planck lengths instead of meaningless gravity numbers
+- a state-of-the-art quantum & Planck-scale physics suite for the smallest tier —
+  the "first layer of existence" — every module header-only, pure, deterministic
+  and cited (CODATA 2022 / PDG 2024), each backed by a verification test:
+  - `cosmos/QuantumScale.hpp` — Planck units re-derived from `hbar`/`c`/`G`,
+    Compton / de Broglie / thermal wavelengths, the Compton–Schwarzschild crossover,
+    Heisenberg bounds, the quantum harmonic oscillator, the Bohr/hydrogen ladder
+    (13.6 eV ground state, Lyman/Balmer lines), and decay width ↔ lifetime
+  - `cosmos/PlanckScale.hpp` — the full Planck unit system (charge, force, power,
+    density, …) plus black-hole thermodynamics (Hawking T, Bekenstein–Hawking
+    entropy, Page evaporation), the holographic / Bekenstein bounds, and a GUP
+    minimal length
+  - `cosmos/StandardModel.hpp` — electroweak relations (weak mixing angle, the
+    Higgs VEV / Yukawa / self-coupling), conserved quantum numbers with the
+    Gell-Mann–Nishijima charge check, the CKM matrix, and one-loop running of the
+    gauge couplings (asymptotic freedom, α_s(M_Z) ≈ 0.118)
+  - `cosmos/Hadronization.hpp` — builds colour-singlet hadrons from quark content
+    and reads off their charge, baryon number and strangeness (the QCD spectrum)
+  - `cosmos/QuantumVacuum.hpp` — Casimir pressure, the Schwinger critical field,
+    the Unruh temperature, and the cosmological-constant problem
+  - `cosmos/QuantumStatistics.hpp` — Fermi-Dirac / Bose-Einstein / Maxwell-Boltzmann
+    occupation, WKB tunnelling, particle-in-a-box levels, the Gamow factor, and
+    degeneracy pressure
+  - `cosmos/QuantumGenesis.hpp` — the **generation step**: synthesizes a universe's
+    entire particle-physics content from its law genome (effective couplings, the
+    n–p mass split, proton / deuteron / di-proton stability, the periodic-table
+    cutoff, primordial He/H, the hadron spectrum and the early-universe epoch
+    timeline) and returns an anthropic verdict on whether complex matter can form
+    — surfaced live in the inspector alongside per-object rest energy, Compton
+    wavelength and size in Planck lengths
 - a deterministic, lazily-generated, LRU-cached procedural universe you can
   descend into by zooming — galaxy → star system → planet → ecosystem → creature
   — with bounded work and memory (same place always regenerates identically)
