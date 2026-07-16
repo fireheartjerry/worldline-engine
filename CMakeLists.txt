@@ -85,8 +85,21 @@ add_executable(worldline
     src/ui/UniverseAtlasScene.cpp
 )
 target_include_directories(worldline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(worldline raylib worldline_app worldline_cosmos)
+target_link_libraries(worldline raylib worldline_app) # worldline_cosmos comes in via worldline_app
 worldline_apply_warnings(worldline)
+
+# Offline tools (pure CPU, no GPU/window): the field-preview BMP renderer and
+# the metaspec corpus diagnostic. Built as part of the normal flow so they
+# compile against the current engine and cannot silently rot.
+add_executable(worldline_field_preview tools/field_preview.cpp)
+target_include_directories(worldline_field_preview PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_field_preview PRIVATE worldline_physics)
+worldline_apply_warnings(worldline_field_preview)
+
+add_executable(worldline_metaspec_stats tools/metaspec_stats.cpp)
+target_include_directories(worldline_metaspec_stats PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_metaspec_stats PRIVATE worldline_seed)
+worldline_apply_warnings(worldline_metaspec_stats)
 
 add_executable(worldline_physics_tests tests/physics_verification.cpp)
 target_include_directories(worldline_physics_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -443,5 +456,10 @@ set(CPACK_PACKAGE_NAME "Worldline")
 set(CPACK_PACKAGE_VENDOR "Jerry Li")
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 set(CPACK_GENERATOR "ZIP")
-set(CPACK_PACKAGE_FILE_NAME "Worldline-${PROJECT_VERSION}-windows")
+# Name the package for the platform it was actually built on.
+string(TOLOWER "${CMAKE_SYSTEM_NAME}" WORLDLINE_PLATFORM)
+if (WORLDLINE_PLATFORM STREQUAL "darwin")
+    set(WORLDLINE_PLATFORM "macos")
+endif()
+set(CPACK_PACKAGE_FILE_NAME "Worldline-${PROJECT_VERSION}-${WORLDLINE_PLATFORM}")
 include(CPack)

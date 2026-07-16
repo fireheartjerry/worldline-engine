@@ -95,9 +95,12 @@ std::vector<CosmosBookmark> load_cosmos_bookmarks() {
         }
     }
 
+    // Same-second saves would otherwise land in directory-iteration order,
+    // which is unspecified — tie-break on id for a stable listing.
     std::sort(bookmarks.begin(), bookmarks.end(),
               [](const CosmosBookmark& lhs, const CosmosBookmark& rhs) {
-                  return lhs.created_at > rhs.created_at;
+                  if (lhs.created_at != rhs.created_at) return lhs.created_at > rhs.created_at;
+                  return lhs.id < rhs.id;
               });
     return bookmarks;
 }

@@ -14,7 +14,11 @@ namespace {
 double sqr(double v) { return v * v; }
 double frob2(const double m[2][2]) { return std::sqrt(sqr(m[0][0]) + sqr(m[0][1]) + sqr(m[1][0]) + sqr(m[1][1])); }
 double norm2(const double v[2]) { return std::sqrt(sqr(v[0]) + sqr(v[1])); }
-double median(std::vector<double> v) { std::sort(v.begin(), v.end()); return v[v.size() / 2]; }
+double median(std::vector<double> v) {
+    if (v.empty()) return 0.0;
+    std::sort(v.begin(), v.end());
+    return v[v.size() / 2];
+}
 
 void eig_sym(const double m[2][2], double& lo, double& hi) {
     const double a = m[0][0], b = 0.5 * (m[0][1] + m[1][0]), d = m[1][1];

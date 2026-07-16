@@ -195,7 +195,10 @@ Community generate_community(std::uint64_t seed, const BiomeParams& biome,
     // Order species by trophic level so suppliers are solved before consumers.
     std::vector<int> order(static_cast<std::size_t>(S));
     for (int i = 0; i < S; ++i) order[static_cast<std::size_t>(i)] = i;
-    std::sort(order.begin(), order.end(), [&](int a, int b) {
+    // stable_sort: equal trophic levels are common (all producers sit at the
+    // same tau) and the flux solve below consumes this order, so tie order must
+    // not depend on the STL implementation (determinism across platforms).
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
         return sp[static_cast<std::size_t>(a)].t.tau < sp[static_cast<std::size_t>(b)].t.tau;
     });
     // Total incoming preference on each prey (to split its flux among predators).

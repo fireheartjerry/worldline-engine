@@ -84,7 +84,7 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
     // ── Content offsets ────────────────────────────────────────────────────────
     float cy = 16.0f * ui;
     const float title_offset    = cy; cy += 36.0f * ui;
-    const float subtitle_offset = cy; cy += 26.0f * ui;
+    cy += 26.0f * ui; // subtitle row (no widget anchors to it)
     const float badge_offset    = cy; cy += badge_height;
     const float nav_offset      = cy; cy += nav_height      + card_gap;
     const float actions_offset  = cy; cy += actions_height  + card_gap;

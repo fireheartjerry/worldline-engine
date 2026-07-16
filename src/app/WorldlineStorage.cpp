@@ -200,9 +200,12 @@ CatalogIndex load_catalog() {
         }
     }
 
+    // Timestamps have one-second granularity and directory iteration order is
+    // unspecified, so tie-break on id for a stable catalog order everywhere.
     std::sort(catalog.projects.begin(), catalog.projects.end(), [](const UniverseProject& lhs,
                                                                   const UniverseProject& rhs) {
-        return lhs.updated_at > rhs.updated_at;
+        if (lhs.updated_at != rhs.updated_at) return lhs.updated_at > rhs.updated_at;
+        return lhs.id < rhs.id;
     });
     return catalog;
 }

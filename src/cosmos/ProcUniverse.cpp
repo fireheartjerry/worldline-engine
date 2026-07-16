@@ -192,7 +192,9 @@ void gen_universe(ProcNode& n, Rng& r) {
     // keep its densest points (filaments + cluster nodes), so galaxies clump on
     // filaments and the voids stay empty — the universe reads as the real web.
     std::vector<cosmoweb::WebPoint> web = cosmoweb::sample_cosmic_web(n.seed, count * 10, 200.0);
-    std::sort(web.begin(), web.end(), [](const cosmoweb::WebPoint& a, const cosmoweb::WebPoint& b) {
+    // stable_sort: the top-`count` points decide which galaxies exist, so ties
+    // in density must resolve by sample order, not by STL implementation.
+    std::stable_sort(web.begin(), web.end(), [](const cosmoweb::WebPoint& a, const cosmoweb::WebPoint& b) {
         return a.density_contrast > b.density_contrast;
     });
     for (int i = 0; i < count; ++i) {

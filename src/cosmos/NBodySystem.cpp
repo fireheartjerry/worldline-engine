@@ -41,6 +41,7 @@ ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
 
     switch (tier.scale) {
     case Scale::SUBATOMIC:
+        p.gravity = 0.0; // negligible at this scale; EM + strong terms rule
         p.charge = 1.2 * em;
         p.strong = 1.2 * strong;
         p.core = 0.5 * exclude;
@@ -49,6 +50,9 @@ ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
         p.damping = 0.18 * drag;
         break;
     case Scale::NUCLEAR:
+        // Not literal gravity: an effective long-range mean-field attraction the
+        // tier's pair binding depends on (asserted by the tiers verification).
+        p.gravity = 1.6;
         p.charge = 0.30 * em;
         p.strong = 2.6 * strong * bind;
         p.core = 0.75 * exclude;
@@ -66,6 +70,7 @@ ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
         p.damping = 0.15 * drag;
         break;
     case Scale::MOLECULAR:
+        p.gravity = 0.15; // residual cohesion only, between ATOMIC and NANOSCALE
         p.charge = 0.20 * em;
         p.strong = 2.2 * strong * bind;
         p.core = 0.85 * exclude;
