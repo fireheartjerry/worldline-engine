@@ -327,6 +327,27 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
                 descent_push(cosmos, d.selected_child);
             }
         }
+        // H: aim at the next notable child — habitable worlds in a star system,
+        // the keystone species in an ecosystem — and pan the camera onto it.
+        if (IsKeyPressed(KEY_H) && nchild > 0) {
+            int pick = -1;
+            if (d.focus_kind() == NodeKind::StarSystem) {
+                for (int off = 1; off <= nchild; ++off) { // cycle from the cursor
+                    const int i = ((d.selected_child < 0 ? -1 : d.selected_child) + off + nchild) % nchild;
+                    if (d.focus().children[static_cast<std::size_t>(i)].habitable) { pick = i; break; }
+                }
+            } else if (d.focus_kind() == NodeKind::Ecosystem && d.live_seed == d.focus().seed) {
+                const int ks = d.live.community.stats.keystone;
+                if (ks >= 0 && ks < nchild) pick = ks;
+            }
+            if (pick >= 0) {
+                d.selected_child = pick;
+                float nx, ny;
+                child_layout(d.focus().children[static_cast<std::size_t>(pick)],
+                             d.focus_kind(), t, nx, ny);
+                cam.target_pan = {nx, ny};
+            }
+        }
         if (IsKeyPressed(KEY_BACKSPACE)) descent_pop(cosmos);
         if (IsKeyPressed(KEY_HOME)) descent_jump_to_depth(cosmos, 0);
         if (IsKeyPressed(KEY_LEFT_BRACKET))  descent_sibling(cosmos, -1);
@@ -1068,6 +1089,37 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         }
     }
 
+    // Minimap: once the camera is zoomed in enough for children to leave the
+    // stage, show the whole level with the current viewport marked, so panning
+    // deep into a level never means losing the overview.
+    if (zoomf > 1.55f && !f.children.empty()) {
+        const float ms = 104.0f * ui;
+        const Rectangle mm = {stage.x + stage.width - ms - 12.0f * ui,
+                              stage.y + (eco_live ? 44.0f : 12.0f) * ui, ms, ms};
+        draw_glass_panel(mm, {6, 14, 24, 205}, with_alpha(WL::CYAN_DIM, 110), 0.25f, 2);
+        const auto to_mm = [&](float nx, float ny) -> Vector2 {
+            return {mm.x + (nx / kDescentHalf * 0.5f + 0.5f) * mm.width,
+                    mm.y + (ny / kDescentHalf * 0.5f + 0.5f) * mm.height};
+        };
+        BeginScissorMode(static_cast<int>(mm.x), static_cast<int>(mm.y),
+                         static_cast<int>(mm.width), static_cast<int>(mm.height));
+        for (int i = 0; i < n; ++i) {
+            const ChildRef& c = f.children[static_cast<std::size_t>(i)];
+            float nx, ny;
+            child_layout(c, f.kind, t, nx, ny);
+            const Vector2 p = to_mm(nx, ny);
+            DrawCircleV(p, std::max(1.0f, 1.4f * ui),
+                        with_alpha(to_raylib(c.color), i == d.selected_child ? 255 : 170));
+        }
+        // Current viewport in layout space, mapped into the minimap.
+        const float hw = (stage.width * 0.5f) / sc / (2.0f * kDescentHalf) * mm.width;
+        const float hh = (stage.height * 0.5f) / sc / (2.0f * kDescentHalf) * mm.height;
+        const Vector2 vc = to_mm(static_cast<float>(cam.pan.x), static_cast<float>(cam.pan.y));
+        DrawRectangleLinesEx({vc.x - hw, vc.y - hh, hw * 2.0f, hh * 2.0f}, 1.0f,
+                             with_alpha(WL::XENON_CORE, 170));
+        EndScissorMode();
+    }
+
     // Granular simulation time-control HUD (when a community is live).
     const bool sim_live = (d.live_seed != 0) &&
                           (f.kind == NodeKind::Ecosystem || f.kind == NodeKind::Creature);
@@ -1357,7 +1409,7 @@ void draw_descent_hud(const CosmosState& cosmos, Rectangle stage, float ui) {
                   ? "scroll out: ascend   |   drag / WASD: pan   |   C: recenter"
                   : "scroll in / click / Enter: enter   |   scroll out: ascend   |   drag / WASD: pan   |   C: recenter",
               {stage.x + 12.0f * ui, hy}, 10.5f * ui, with_alpha(WL::TEXT_TERTIARY, 200));
-    draw_text("arrows: aim   |   Tab: cycle   |   1-9: jump   |   [ ]: siblings   |   backspace: up   |   Home: root   |   G: deck",
+    draw_text("arrows: aim   |   Tab: cycle   |   1-9: jump   |   H: notable   |   [ ]: siblings   |   backspace: up   |   Home: root   |   G: deck",
               {stage.x + 12.0f * ui, hy + 14.0f * ui}, 9.5f * ui,
               with_alpha(WL::TEXT_TERTIARY, 150));
 }
