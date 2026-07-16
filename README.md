@@ -216,6 +216,10 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
 - a deterministic, lazily-generated, LRU-cached procedural universe you can
   descend into by zooming — galaxy → star system → planet → ecosystem → creature
   — with bounded work and memory (same place always regenerates identically)
+- aim-true descent navigation: the child under your cursor is the child you
+  enter (with an on-stage "entering" highlight before the hand-off), zoom-through
+  transitions instead of hard cuts, clamped panning with a recenter key, and the
+  full keyboard shell documented on screen
 - research-grounded generation: stars follow the real stellar IMF and HR
   relations, planet habitability is gated by the Kopparapu habitable zone and
   star lifetime (so most worlds are barren), and living worlds grow Whittaker
@@ -226,7 +230,9 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
 
 ## Build
 
-Worldline builds on Windows, Linux, and macOS. CI validates all three.
+Worldline builds on Windows, Linux, and macOS. Windows is the reference
+platform and the one CI validates; Linux and macOS builds are supported on a
+best-effort basis.
 
 ### Linux dependencies
 

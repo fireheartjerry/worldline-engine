@@ -80,6 +80,24 @@ inline Vector2 child_pos(const DescentState& d, int i) {
     return {d.child_px[static_cast<std::size_t>(i)], d.child_py[static_cast<std::size_t>(i)]};
 }
 
+// Renderer guard for the drawn sprite set. Kept far above the engine's maximum
+// children per node (60) so the drawn set, hover, pick, and food-web links all
+// cover the same objects — a child must never be enterable but invisible.
+constexpr int kMaxDrawnChildren = 256;
+
+// Interaction state is per-node: any change of focus (enter, ascend, jump,
+// sibling hop, reseed) must drop it so a stale index never leaks into the newly
+// focused node's children (e.g. the selection reticle snapping to an arbitrary
+// child, or an ecosystem cross-highlighting the wrong species).
+void reset_node_interaction(DescentState& d) {
+    d.hovered_child = -1;
+    d.hover_locked = -1;
+    d.selected_child = -1;
+    d.focus_species = -1;
+    d.descend_hint = -1;
+    d.zoom_anchor = {-1.0f, -1.0f};
+}
+
 } // namespace
 
 void descent_ensure_init(CosmosState& cosmos) {
@@ -96,10 +114,17 @@ void descent_ensure_init(CosmosState& cosmos) {
     d.root_seed = sig;
     d.path.clear();
     d.path.push_back(d.universe->root()); // copy
-    d.hovered_child = -1;
+    reset_node_interaction(d);
+    // A reseed is a new universe: drop the live sim and its time controls, and
+    // invalidate the per-universe render caches.
+    d.live_seed = 0;
+    d.sim_paused = false;
+    d.sim_speed = 1.0;
+    d.sim_step_once = false;
+    d.web_census_seed = 0;
+    d.web_edges_seed = 0;
     d.camera = CosmosCamera{};
     d.transition = 1.0f;
-    d.transition_dir = 0;
     d.initialized = true;
 }
 
@@ -117,12 +142,15 @@ void descent_push(CosmosState& cosmos, int child_index) {
     const ProcNode* parent = &d.path.back();
     ProcNode cn = d.universe->node(child.seed, child.kind, parent); // copy (engine ref may move)
     d.path.push_back(std::move(cn));
-    d.hovered_child = -1;
-    d.camera.target_zoom = d.camera.zoom = kZoomMin * 1.05;
+    reset_node_interaction(d);
+    // Zoom-through: land slightly wider than the resting zoom and let the
+    // camera smoothing carry the inward motion across the boundary, so entering
+    // reads as one continuous dive instead of a hard cut.
+    d.camera.target_zoom = kZoomMin * 1.05;
+    d.camera.zoom = kZoomMin * 0.72;
     d.camera.target_pan = d.camera.pan = Vec2{};
     d.camera.flash = 1.0f;
     d.transition = 0.0f;
-    d.transition_dir = 1;
 }
 
 void descent_pop(CosmosState& cosmos) {
@@ -132,30 +160,36 @@ void descent_pop(CosmosState& cosmos) {
     }
     const std::uint64_t exited = d.focus().seed;
     d.path.pop_back();
-    d.hovered_child = -1;
-    // Land zoomed-in, recentered on the child we came from, so it reads as
-    // pulling back out of where we were.
-    d.camera.target_zoom = d.camera.zoom = kZoomMax * 0.95;
+    reset_node_interaction(d);
+    // Land zoomed-in, recentered on the child we came from — at its current
+    // animated position (planets orbit), not its phase-0 layout slot — so it
+    // reads as pulling back out of where we were. Start past the resting zoom
+    // and let the smoothing continue the outward motion across the boundary.
+    d.camera.target_zoom = kZoomMax * 0.95;
+    d.camera.zoom = kZoomMax * 1.30;
     Vec2 p{};
     for (const ChildRef& c : d.focus().children) {
-        if (c.seed == exited) { p = {c.x, c.y}; break; }
+        if (c.seed == exited) {
+            float nx, ny;
+            child_layout(c, d.focus_kind(), static_cast<float>(GetTime()), nx, ny);
+            p = {nx, ny};
+            break;
+        }
     }
     d.camera.target_pan = d.camera.pan = p;
     d.camera.flash = 1.0f;
     d.transition = 0.0f;
-    d.transition_dir = -1;
 }
 
 void descent_jump_to_depth(CosmosState& cosmos, int depth) {
     DescentState& d = cosmos.descent;
     depth = std::clamp(depth, 0, d.depth());
     d.path.resize(static_cast<std::size_t>(depth) + 1);
-    d.hovered_child = -1;
+    reset_node_interaction(d);
     d.camera.target_zoom = d.camera.zoom = 1.0;
     d.camera.target_pan = d.camera.pan = Vec2{};
     d.camera.flash = 1.0f;
     d.transition = 0.0f;
-    d.transition_dir = 0;
 }
 
 void descent_sibling(CosmosState& cosmos, int dir) {
@@ -174,14 +208,12 @@ void descent_sibling(CosmosState& cosmos, int dir) {
     const ChildRef child = par.children[static_cast<std::size_t>(ni)];
     ProcNode cn = d.universe->node(child.seed, child.kind, &par);
     d.path.push_back(std::move(cn));
-    d.hovered_child = -1;
-    d.selected_child = -1;
+    reset_node_interaction(d);
     d.live_seed = 0;
     d.camera.target_zoom = d.camera.zoom = 1.0;
     d.camera.target_pan = d.camera.pan = Vec2{};
     d.camera.flash = 1.0f;
     d.transition = 0.0f;
-    d.transition_dir = 0;
 }
 
 namespace {
@@ -239,6 +271,9 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
                                 cam.target_pan.y + (m.y - ctr.y) / (sc0 * z1)};
             cam.target_pan.x += before.x - after.x;
             cam.target_pan.y += before.y - after.y;
+            // Remember where the zoom-in is aimed: the descend pick targets this
+            // point, so the child under the cursor is the child you enter.
+            d.zoom_anchor = (wheel > 0.0f) ? m : Vector2{-1.0f, -1.0f};
         }
 
         // Drag to pan.
@@ -259,6 +294,16 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
         if (IsKeyDown(KEY_S)) cam.target_pan.y += pan_step;
         if (IsKeyDown(KEY_EQUAL) || IsKeyDown(KEY_KP_ADD))      cam.target_zoom *= std::exp(2.2 * dt);
         if (IsKeyDown(KEY_MINUS) || IsKeyDown(KEY_KP_SUBTRACT)) cam.target_zoom *= std::exp(-2.2 * dt);
+        if (IsKeyPressed(KEY_C)) { // recenter the current level without changing depth
+            cam.target_pan = Vec2{};
+            d.zoom_anchor = {-1.0f, -1.0f};
+        }
+        // Keep the camera centre inside the populated layout square so content
+        // can never be panned irretrievably off-stage.
+        cam.target_pan.x = std::clamp(cam.target_pan.x, -static_cast<double>(kDescentHalf),
+                                      static_cast<double>(kDescentHalf));
+        cam.target_pan.y = std::clamp(cam.target_pan.y, -static_cast<double>(kDescentHalf),
+                                      static_cast<double>(kDescentHalf));
 
         // ── Selection cursor (keyboard): directional arrows, Tab cycle, number
         //    quick-jump, Enter to enter, [ ] siblings, Home to root. ────────────
@@ -340,27 +385,31 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
         fill_child_positions(cosmos, stage, t);
     }
 
+    // Descend pick, shared by the trigger below and the "about to enter"
+    // highlight in draw: the child nearest the zoom anchor (the cursor point of
+    // the last wheel zoom-in, else the stage centre), within reach of it.
+    d.descend_hint = -1;
+    if (!node_is_leaf(d.focus_kind()) && !d.focus().children.empty()) {
+        const bool anchored = d.zoom_anchor.x >= 0.0f &&
+                              CheckCollisionPointRec(d.zoom_anchor, stage);
+        const Vector2 aim = anchored ? d.zoom_anchor : ctr;
+        int best = -1;
+        float best_d = 1.0e30f;
+        for (int i = 0; i < static_cast<int>(d.child_px.size()); ++i) {
+            const Vector2 p = child_pos(d, i);
+            const float dist = std::hypot(p.x - aim.x, p.y - aim.y);
+            if (dist < best_d) { best_d = dist; best = i; }
+        }
+        const float reach = 0.32f * std::min(stage.width, stage.height);
+        if (best >= 0 && best_d < reach) d.descend_hint = best;
+    }
+
     // Descend / ascend on zoom bounds.
     if (cam.target_zoom > kZoomMax) {
-        const ProcNode& f = d.focus();
-        if (!node_is_leaf(f.kind) && !f.children.empty()) {
-            // Pick the child nearest the stage center (cursor-anchored zoom pulls
-            // the aimed child there). Require it to be reasonably central.
-            int best = -1;
-            float best_d = 1.0e30f;
-            for (int i = 0; i < static_cast<int>(d.child_px.size()); ++i) {
-                const Vector2 p = child_pos(d, i);
-                const float dist = std::hypot(p.x - ctr.x, p.y - ctr.y);
-                if (dist < best_d) { best_d = dist; best = i; }
-            }
-            const float reach = 0.32f * std::min(stage.width, stage.height);
-            if (best >= 0 && best_d < reach) {
-                descent_push(cosmos, best);
-            } else {
-                cam.target_zoom = kZoomMax; // nothing to enter; hold at the edge
-            }
+        if (d.descend_hint >= 0) {
+            descent_push(cosmos, d.descend_hint);
         } else {
-            cam.target_zoom = kZoomMax; // leaf or empty: cannot descend
+            cam.target_zoom = kZoomMax; // nothing to enter; hold at the edge
         }
     } else if (cam.target_zoom < kZoomMin) {
         if (d.depth() > 0) {
@@ -389,7 +438,9 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
 
     if (d.focus_kind() == NodeKind::Ecosystem) {
         if (d.live_seed != d.focus().seed) {
-            ecosim::init_live(d.live, community_for_ecosystem(d.focus()));
+            // Reuse the engine's memoized community instead of rebuilding the
+            // O(S^2) phylogeny + food web from scratch on every entry.
+            ecosim::init_live(d.live, d.universe->community_cached(d.focus()));
             d.live_seed = d.focus().seed;
             d.focus_species = -1;
         }
@@ -404,7 +455,7 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
         const ProcNode& ecop = d.path[static_cast<std::size_t>(d.depth() - 1)];
         if (ecop.kind == NodeKind::Ecosystem) {
             if (d.live_seed != ecop.seed) {
-                ecosim::init_live(d.live, community_for_ecosystem(ecop));
+                ecosim::init_live(d.live, d.universe->community_cached(ecop));
                 d.live_seed = ecop.seed;
             }
             ecosim::advance(d.live, sdt);
@@ -453,11 +504,18 @@ void draw_descent_analysis(CosmosState& cosmos, Rectangle stage, float ui) {
         DrawLineEx({kt, a.plot.y}, {kt, a.plot.y + a.plot.height}, 1.0f, with_alpha(WL::XENON_CORE, 120));
         draw_text("turnover", {kt + 2.0f * ui, a.plot.y + 2.0f * ui}, 8.0f * ui, with_alpha(WL::XENON_CORE, 200));
 
-        // (3) Cosmic-web census (void/wall/filament/node volume share).
+        // (3) Cosmic-web census (void/wall/filament/node volume share). The
+        // 3000-point sample is static per seed, so it is computed once and
+        // cached — never per frame.
         Rectangle q = plot_card(C2, "COSMIC WEB CENSUS", ui, WL::PLASMA_GREEN);
-        std::vector<cosmoweb::WebPoint> web = cosmoweb::sample_cosmic_web(f.seed, 3000, 200.0);
-        float cnt[4] = {0, 0, 0, 0};
-        for (const auto& w : web) cnt[static_cast<int>(w.cls)] += 1.0f;
+        if (d.web_census_seed != f.seed) {
+            const std::vector<cosmoweb::WebPoint> web =
+                cosmoweb::sample_cosmic_web(f.seed, 3000, 200.0);
+            for (float& c : d.web_census) c = 0.0f;
+            for (const auto& w : web) d.web_census[static_cast<int>(w.cls)] += 1.0f;
+            d.web_census_seed = f.seed;
+        }
+        const float* cnt = d.web_census;
         const float tot = std::max(1.0f, cnt[0] + cnt[1] + cnt[2] + cnt[3]);
         draw_hbars(q, {cnt[0] / tot, cnt[1] / tot, cnt[2] / tot, cnt[3] / tot},
                    {"void", "wall", "filament", "node"},
@@ -721,27 +779,39 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         // Cosmic web: link each galaxy to its two nearest neighbours, tracing the
         // filaments that thread the clusters (galaxies were placed on the density
         // field's peaks, so this proximity graph reads as the large-scale web).
+        // Galaxy layout is static, so the O(n^2) neighbour topology is built once
+        // per universe and only re-projected through the camera each frame.
+        if (d.web_edges_seed != f.seed) {
+            d.web_edges.clear();
+            const int gn = static_cast<int>(f.children.size());
+            for (int i = 0; i < gn; ++i) {
+                const ChildRef& ci = f.children[static_cast<std::size_t>(i)];
+                int b1 = -1, b2 = -1;
+                float d1 = 1e30f, d2 = 1e30f;
+                for (int j = 0; j < gn; ++j) {
+                    if (j == i) continue;
+                    const ChildRef& cj = f.children[static_cast<std::size_t>(j)];
+                    const float dx = ci.x - cj.x;
+                    const float dy = ci.y - cj.y;
+                    const float dd = dx * dx + dy * dy;
+                    if (dd < d1) { d2 = d1; b2 = b1; d1 = dd; b1 = j; }
+                    else if (dd < d2) { d2 = dd; b2 = j; }
+                }
+                for (int b : {b1, b2}) {
+                    if (b > i) d.web_edges.emplace_back(i, b); // each strand once
+                }
+            }
+            d.web_edges_seed = f.seed;
+        }
         const int gn = static_cast<int>(d.child_px.size());
-        for (int i = 0; i < gn; ++i) {
-            int b1 = -1, b2 = -1;
-            float d1 = 1e30f, d2 = 1e30f;
-            for (int j = 0; j < gn; ++j) {
-                if (j == i) continue;
-                const float dx = d.child_px[static_cast<std::size_t>(i)] - d.child_px[static_cast<std::size_t>(j)];
-                const float dy = d.child_py[static_cast<std::size_t>(i)] - d.child_py[static_cast<std::size_t>(j)];
-                const float dd = dx * dx + dy * dy;
-                if (dd < d1) { d2 = d1; b2 = b1; d1 = dd; b1 = j; }
-                else if (dd < d2) { d2 = dd; b2 = j; }
-            }
-            const int nb[2] = {b1, b2};
-            for (int b : nb) {
-                if (b <= i) continue; // draw each strand once
-                const float len = std::hypot(d.child_px[static_cast<std::size_t>(i)] - d.child_px[static_cast<std::size_t>(b)],
-                                             d.child_py[static_cast<std::size_t>(i)] - d.child_py[static_cast<std::size_t>(b)]);
-                // Nearer galaxies sit on a denser filament -> brighter strand.
-                const unsigned char a = static_cast<unsigned char>(std::clamp(46.0f - len * 0.06f, 8.0f, 46.0f));
-                DrawLineEx(child_pos(d, i), child_pos(d, b), 1.1f, with_alpha(WL::CYAN_DIM, a));
-            }
+        for (const auto& e : d.web_edges) {
+            if (e.first >= gn || e.second >= gn) continue;
+            const Vector2 pa = child_pos(d, e.first);
+            const Vector2 pb = child_pos(d, e.second);
+            const float len = std::hypot(pa.x - pb.x, pa.y - pb.y);
+            // Nearer galaxies sit on a denser filament -> brighter strand.
+            const unsigned char a = static_cast<unsigned char>(std::clamp(46.0f - len * 0.06f, 8.0f, 46.0f));
+            DrawLineEx(pa, pb, 1.1f, with_alpha(WL::CYAN_DIM, a));
         }
     } else if (f.kind == NodeKind::Galaxy) {
         // Morphology-accurate structure under the star field: a halo glow plus
@@ -876,7 +946,7 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         sprites.push_back(s);
     }
 
-    const int n = std::min(static_cast<int>(f.children.size()), 60);
+    const int n = std::min(static_cast<int>(f.children.size()), kMaxDrawnChildren);
     for (int i = 0; i < n; ++i) {
         const ChildRef& c = f.children[static_cast<std::size_t>(i)];
         Renderer::FieldSprite s;
@@ -975,6 +1045,27 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         const Color sc_col = (eco_live && d.selected_child == d.focus_species) ? WL::PLASMA_GREEN : WL::CYAN_CORE;
         draw_corner_brackets({p.x - rs, p.y - rs, rs * 2.0f, rs * 2.0f}, sc_col, 6.0f * ui, 2.0f, 0.0f);
         DrawCircleLines(static_cast<int>(p.x), static_cast<int>(p.y), rs + 3.0f * ui, with_alpha(sc_col, 70));
+    }
+
+    // "About to enter" highlight: as the zoom-in approaches the descend
+    // threshold, ring the child the camera will actually enter (the same pick
+    // the trigger uses), so the hand-off is never a surprise.
+    if (d.descend_hint >= 0 && d.descend_hint < static_cast<int>(d.child_px.size()) &&
+        !node_is_leaf(f.kind)) {
+        const float prog = static_cast<float>((cam.target_zoom - kZoomMax * 0.80) /
+                                              (kZoomMax * 0.20));
+        if (prog > 0.0f) {
+            const float a01 = std::min(prog, 1.0f);
+            const Vector2 p = child_pos(d, d.descend_hint);
+            const float rr = (20.0f - 5.0f * a01 + 2.0f * std::sin(t * 6.0f)) * ui;
+            DrawCircleLines(static_cast<int>(p.x), static_cast<int>(p.y), rr,
+                            with_alpha(WL::XENON_CORE, static_cast<unsigned char>(200 * a01)));
+            DrawCircleLines(static_cast<int>(p.x), static_cast<int>(p.y), rr + 4.0f * ui,
+                            with_alpha(WL::XENON_CORE, static_cast<unsigned char>(80 * a01)));
+            if (a01 > 0.5f)
+                draw_text("ENTERING", {p.x - 25.0f * ui, p.y - rr - 14.0f * ui}, 9.0f * ui,
+                          with_alpha(WL::XENON_CORE, static_cast<unsigned char>(220 * a01)));
+        }
     }
 
     // Granular simulation time-control HUD (when a community is live).
@@ -1259,11 +1350,16 @@ void draw_descent_hud(const CosmosState& cosmos, Rectangle stage, float ui) {
               {chip.x + 10.0f * ui, chip.y + 6.0f * ui}, 10.0f * ui, with_alpha(WL::CYAN_CORE, 175));
     draw_text(f.name, {chip.x + 10.0f * ui, chip.y + 19.0f * ui}, 16.0f * ui, WL::TEXT_PRIMARY);
 
+    // Two-line control legend: camera on top, the full keyboard shell below —
+    // every shortcut the shell honours is discoverable on screen.
+    const float hy = stage.y + stage.height - 32.0f * ui;
     draw_text(node_is_leaf(f.kind)
-                  ? "scroll out to ascend   |   drag / WASD: pan   |   backspace: up"
-                  : "scroll in: enter   |   click an object to enter   |   scroll out: ascend   |   drag: pan",
-              {stage.x + 12.0f * ui, stage.y + stage.height - 18.0f * ui}, 10.5f * ui,
-              with_alpha(WL::TEXT_TERTIARY, 200));
+                  ? "scroll out: ascend   |   drag / WASD: pan   |   C: recenter"
+                  : "scroll in / click / Enter: enter   |   scroll out: ascend   |   drag / WASD: pan   |   C: recenter",
+              {stage.x + 12.0f * ui, hy}, 10.5f * ui, with_alpha(WL::TEXT_TERTIARY, 200));
+    draw_text("arrows: aim   |   Tab: cycle   |   1-9: jump   |   [ ]: siblings   |   backspace: up   |   Home: root   |   G: deck",
+              {stage.x + 12.0f * ui, hy + 14.0f * ui}, 9.5f * ui,
+              with_alpha(WL::TEXT_TERTIARY, 150));
 }
 
 } // namespace cosmos_ui

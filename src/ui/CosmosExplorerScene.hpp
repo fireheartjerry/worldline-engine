@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 class Renderer;
@@ -39,8 +40,23 @@ struct DescentState {
     int hovered_child = -1;                           // index into focus().children
     CosmosCamera camera;                              // reuse zoom/pan/flash machinery
     float transition = 0.0f;                          // enter/leave animation envelope
-    int transition_dir = 0;                           // +1 descending, -1 ascending
     bool initialized = false;
+
+    // Descend targeting: the last cursor-anchored zoom point (screen space,
+    // x < 0 when invalid -> fall back to the stage centre), and the child the
+    // camera will enter if the zoom-in continues. The same pick drives both the
+    // descend trigger and the on-stage "about to enter" highlight, so what you
+    // aim at is always what you get.
+    Vector2 zoom_anchor{-1.0f, -1.0f};
+    int descend_hint = -1;
+
+    // Per-universe render caches (rebuilt only when the focused seed changes):
+    // the cosmic-web census shares for the analysis deck, and the 2-nearest-
+    // neighbour filament edge list (topology is camera-invariant).
+    float web_census[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    std::uint64_t web_census_seed = 0;
+    std::vector<std::pair<int, int>> web_edges;
+    std::uint64_t web_edges_seed = 0;
 
     // Live ecosystem simulation: built when entering an Ecosystem node and advanced
     // with a fixed timestep (FPS-independent, deterministic) so the food web breathes
