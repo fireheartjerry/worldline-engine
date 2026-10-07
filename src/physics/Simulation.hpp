@@ -7,6 +7,7 @@
 #include "../math/Integrators.hpp"
 #include "../math/Vec2.hpp"
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 
 class Simulation {
@@ -244,15 +245,27 @@ private:
 
     void mark_cache_dirty() { cache_valid = false; }
 
+    // RopeState ends in two bools followed by padding that is never
+    // initialized (rope is reassigned from rope_from_state() temporaries), so
+    // it is compared field by field: a whole-object memcmp reads indeterminate
+    // bytes (valgrind: "conditional jump depends on uninitialised value").
+    // The four Vec2s are contiguous doubles with no padding between them.
+    static bool same_rope(const RopeState& a, const RopeState& b) {
+        static_assert(offsetof(RopeState, vel2) + sizeof(Vec2) == 4 * sizeof(Vec2),
+                      "RopeState's Vec2 members must be contiguous");
+        return !std::memcmp(&a.bob1, &b.bob1, 4 * sizeof(Vec2)) // NOLINT(bugprone-suspicious-memory-comparison)
+            && a.taut1 == b.taut1 && a.taut2 == b.taut2;
+    }
+
     bool cache_matches_state() const {
-        // memcmp is safe: all three types are trivially-copyable POD with no
-        // uninitialized padding (value-initialized at construction, snapshots
-        // written via memcpy which copies padding bytes too).
+        // Bitwise comparison (a -0.0/0.0 flip is a harmless extra recompute).
+        // PendulumState and PendulumParams contain only doubles/ints with no
+        // padding, so a whole-object memcmp reads only initialized bytes.
         // Also fixes a latent bug: the old same_flow_field() omitted gust_x/y/frequency.
         return cache_valid
-            && !std::memcmp(&cached_state_snapshot, &state, sizeof(PendulumState))
-            && !std::memcmp(&cached_rope_snapshot,  &rope,  sizeof(RopeState))
-            && !std::memcmp(&cached_params_snapshot, &params, sizeof(PendulumParams));
+            && !std::memcmp(&cached_state_snapshot, &state, sizeof(PendulumState)) // NOLINT(bugprone-suspicious-memory-comparison)
+            && same_rope(cached_rope_snapshot, rope)
+            && !std::memcmp(&cached_params_snapshot, &params, sizeof(PendulumParams)); // NOLINT(bugprone-suspicious-memory-comparison)
     }
 
     double compute_dissipation_power_uncached() const {
