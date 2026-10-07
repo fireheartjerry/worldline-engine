@@ -82,10 +82,16 @@ std::array<double, 5> normalize_barycentric(const std::array<std::uint8_t, 5>& c
 }
 
 std::array<double, 4> simplex_point(const std::array<double, 5>& lambda) {
+    // Runs for every cell of every generation (~65k times per seed). Raw
+    // pointers keep the exact vertex-major accumulation order of indexing but
+    // avoid a non-inlined operator[] per element in unoptimized builds.
     std::array<double, 4> point{};
+    double* p = point.data();
     for (std::size_t vertex = 0; vertex < kSimplexVertices.size(); ++vertex) {
-        for (std::size_t axis = 0; axis < point.size(); ++axis) {
-            point[axis] += lambda[vertex] * kSimplexVertices[vertex][axis];
+        const double weight = lambda[vertex];
+        const double* v = kSimplexVertices[vertex].data();
+        for (std::size_t axis = 0; axis < 4; ++axis) {
+            p[axis] += weight * v[axis];
         }
     }
     return point;

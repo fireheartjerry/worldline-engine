@@ -384,11 +384,23 @@ void apply_primitive(const OpEntry& op,
     sanitize_registers(registers);
 }
 
+// Fibonacci basis 1, 2, 3, 5, ... up to the largest term that fits in 64 bits.
+// Built once: zeckendorf_indices() runs on every machine step (hundreds of
+// thousands of times per seed) and used to rebuild this ~90-entry table each
+// call.
+const std::vector<std::uint64_t>& zeckendorf_basis() {
+    static const std::vector<std::uint64_t> fibonacci = [] {
+        std::vector<std::uint64_t> f{1u, 2u};
+        while (f.back() <= std::numeric_limits<std::uint64_t>::max() - f[f.size() - 2u]) {
+            f.push_back(f.back() + f[f.size() - 2u]);
+        }
+        return f;
+    }();
+    return fibonacci;
+}
+
 std::vector<std::uint8_t> zeckendorf_indices(std::uint64_t value) {
-    std::vector<std::uint64_t> fibonacci{1u, 2u};
-    while (fibonacci.back() <= std::numeric_limits<std::uint64_t>::max() - fibonacci[fibonacci.size() - 2u]) {
-        fibonacci.push_back(fibonacci.back() + fibonacci[fibonacci.size() - 2u]);
-    }
+    const std::vector<std::uint64_t>& fibonacci = zeckendorf_basis();
 
     std::vector<std::uint8_t> indices;
     if (value == 0u) {
