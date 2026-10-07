@@ -57,6 +57,10 @@ namespace WL {
 struct UiFontState {
     Font regular{};
     bool loaded = false;
+    // Advance (in base-size pixels) of ASCII 32..126, cached at load so text
+    // measuring skips raylib's linear GetGlyphIndex() scan for common glyphs.
+    std::array<float, 95> ascii_advance{};
+    bool ascii_ready = false;
 };
 
 inline UiFontState& ui_font_state() {
@@ -214,15 +218,30 @@ inline bool load_ui_font_file(const char* path, Font& out) {
     return true;
 }
 
+inline void cache_ui_font_metrics(UiFontState& state) {
+    const Font& font = state.regular;
+    state.ascii_ready = false;
+    if (font.texture.id == 0 || font.glyphs == nullptr) return;
+    for (int c = 32; c <= 126; ++c) {
+        const int index = GetGlyphIndex(font, c);
+        state.ascii_advance[static_cast<std::size_t>(c - 32)] = (font.glyphs[index].advanceX != 0)
+            ? static_cast<float>(font.glyphs[index].advanceX)
+            : font.recs[index].width + static_cast<float>(font.glyphs[index].offsetX);
+    }
+    state.ascii_ready = true;
+}
+
 inline void init_ui_font() {
     UiFontState& state = ui_font_state();
     if (state.loaded) return;
     for (const char* path : ui_font_candidates()) {
         if (load_ui_font_file(path, state.regular)) {
             state.loaded = true;
+            cache_ui_font_metrics(state);
             return;
         }
     }
+    cache_ui_font_metrics(state);   // built-in fallback font
 }
 
 inline void shutdown_ui_font() {
@@ -232,6 +251,7 @@ inline void shutdown_ui_font() {
         state.regular = GetFontDefault();
         state.loaded = false;
     }
+    state.ascii_ready = false;
 }
 
 inline const Font& ui_font() { return ui_font_state().regular; }
@@ -241,76 +261,218 @@ inline const Font& ui_font() { return ui_font_state().regular; }
 // deliberate — motion is a seasoning, not the meal.
 inline float ui_time() { return static_cast<float>(GetTime()); }
 
+// ── Pointer feedback ───────────────────────────────────────────────────────────
+// Interactive widgets ask for a cursor while hovered (hand for buttons, I-beam
+// for text fields).  Requests made during frame N are applied at the start of
+// frame N+1 by ui_apply_cursor_requests(), which draw_background() calls — the
+// one routine every screen runs first.  SetMouseCursor() is only called when
+// the cursor actually changes.
+struct UiCursorState {
+    int requested = MOUSE_CURSOR_DEFAULT;
+    int applied   = MOUSE_CURSOR_DEFAULT;
+};
+
+inline UiCursorState& ui_cursor_state() {
+    static UiCursorState state;
+    return state;
+}
+
+inline void ui_request_cursor(int cursor) {
+    ui_cursor_state().requested = cursor;
+}
+
+inline void ui_apply_cursor_requests() {
+    UiCursorState& state = ui_cursor_state();
+    if (state.requested != state.applied) {
+        SetMouseCursor(state.requested);
+        state.applied = state.requested;
+    }
+    state.requested = MOUSE_CURSOR_DEFAULT;
+}
+
 inline float ui_pulse(float speed, float lo = 0.0f, float hi = 1.0f) {
     const float t = 0.5f + 0.5f * std::sin(ui_time() * speed);
     return lo + (hi - lo) * t;
 }
 
 // ── Text helpers ──────────────────────────────────────────────────────────────
+inline float ui_text_range_width(const char* begin, const char* end, float size, float spacing);
+
 inline Vector2 measure_ui_text(const std::string& text, float size, float spacing = -1.0f) {
     const float sp = (spacing >= 0.0f) ? spacing : ui_text_spacing(size);
+    // Single-line text (the common case) takes the cached-advance path; it is
+    // numerically what MeasureTextEx() returns (height == size for one line).
+    if (text.find('\n') == std::string::npos) {
+        const char* s = text.c_str();
+        return {ui_text_range_width(s, s + text.size(), size, sp), size};
+    }
     return MeasureTextEx(ui_font(), text.c_str(), size, sp);
 }
 
+// Smallest size the fit helpers below will shrink text to.  DejaVu/Consolas
+// stay legible down to about here; below it strokes merge even with mipmaps.
+constexpr float kUiMinTextPx = 9.0f;
+
+// Single-line width of the UTF-8 range [begin, end), computed exactly the way
+// MeasureTextEx() does (sum of advances * scale + (glyphs - 1) * spacing) but
+// without needing a NUL-terminated temporary string.
+inline float ui_text_range_width(const char* begin, const char* end, float size, float spacing) {
+    const UiFontState& state = ui_font_state();
+    const Font& font = state.regular;
+    if (font.texture.id == 0 || font.baseSize <= 0 || begin >= end) return 0.0f;
+    float advance = 0.0f;
+    int glyphs = 0;
+    for (const char* p = begin; p < end;) {
+        const unsigned char c = static_cast<unsigned char>(*p);
+        if (state.ascii_ready && c >= 32u && c <= 126u) {        // O(1) fast path
+            advance += state.ascii_advance[c - 32u];
+            ++p;
+        } else {
+            int bytes = 0;
+            const int codepoint = GetCodepointNext(p, &bytes);
+            p += (bytes > 0) ? bytes : 1;
+            const int index = GetGlyphIndex(font, codepoint);
+            advance += (font.glyphs[index].advanceX != 0)
+                ? static_cast<float>(font.glyphs[index].advanceX)
+                : font.recs[index].width + static_cast<float>(font.glyphs[index].offsetX);
+        }
+        ++glyphs;
+    }
+    return advance * (size / static_cast<float>(font.baseSize)) + static_cast<float>(glyphs - 1) * spacing;
+}
+
 inline float fit_ui_text_size(const std::string& text, float max_width, float preferred_size, float min_size) {
+    // Same result as stepping down 0.5 px at a time until the text fits, but
+    // text width is proportional to size (advances and spacing both scale), so
+    // jump straight to the right step: one or two measures instead of up to 20
+    // per label per frame.
     float size = preferred_size;
-    while (size > min_size && measure_ui_text(text, size).x > max_width)
-        size -= 0.5f;
-    return size;
+    if (size <= min_size) return size;
+    const float width = measure_ui_text(text, size).x;
+    if (width <= max_width || width <= 0.0f) return size;
+    const float ideal = preferred_size * std::max(0.0f, max_width) / width;
+    size = std::max(min_size, preferred_size - 0.5f * std::ceil((preferred_size - ideal) / 0.5f));
+    while (size > min_size && measure_ui_text(text, size).x > max_width) size -= 0.5f;  // float guard
+    return std::max(size, min_size);
+}
+
+// Truncate `text` with a trailing "..." so it fits in `max_width` at `size`.
+// Returns the text unchanged when it already fits; never splits a UTF-8
+// sequence.
+inline std::string ellipsize_ui_text(const std::string& text, float max_width, float size) {
+    const float sp = ui_text_spacing(size);
+    const char* s = text.c_str();
+    if (ui_text_range_width(s, s + text.size(), size, sp) <= max_width) return text;
+    static const char kDots[] = "...";
+    const float dots_w = ui_text_range_width(kDots, kDots + 3, size, sp);
+    if (dots_w > max_width) return std::string();
+    // Binary search over codepoint boundaries for the longest prefix that fits
+    // together with "..." (prefix + spacing + dots, matching MeasureTextEx).
+    std::vector<std::size_t> cuts;
+    cuts.reserve(text.size());
+    for (std::size_t i = 1; i < text.size(); ++i) {
+        if ((static_cast<unsigned char>(text[i]) & 0xC0u) != 0x80u) cuts.push_back(i);
+    }
+    std::size_t lo = 0, hi = cuts.size();   // answer = number of usable cuts
+    while (lo < hi) {
+        const std::size_t mid = (lo + hi + 1) / 2;
+        if (ui_text_range_width(s, s + cuts[mid - 1], size, sp) + sp + dots_w <= max_width) lo = mid;
+        else hi = mid - 1;
+    }
+    std::size_t cut = (lo == 0) ? 0 : cuts[lo - 1];
+    while (cut > 0 && text[cut - 1] == ' ') --cut;
+    return text.substr(0, cut) + kDots;
+}
+
+// Core greedy word-wrap.  Calls `emit(line)` for every wrapped line.  Words are
+// re-joined with single spaces (runs of spaces collapse), '\n' starts a new
+// paragraph and an empty paragraph yields an empty line.  Line widths are
+// accumulated incrementally — width(a + " " + b) = width(a) + width(" ") +
+// width(b) + 2 * spacing — so no candidate strings are built or re-measured.
+template <typename Emit>
+inline void for_each_wrapped_ui_line(const std::string& text, float max_width, float size, Emit&& emit) {
+    const float sp = ui_text_spacing(size);
+    static const char kSpace[] = " ";
+    const float space_w = ui_text_range_width(kSpace, kSpace + 1, size, sp);
+    const char* p = text.c_str();
+    const char* const text_end = p + text.size();
+    std::string line;
+    for (;;) {
+        const char* para_end = p;
+        while (para_end < text_end && *para_end != '\n') ++para_end;
+        if (p == para_end) {
+            line.clear();
+            emit(line);
+        } else {
+            line.clear();
+            float line_w = 0.0f;
+            const char* w = p;
+            while (w < para_end) {
+                while (w < para_end && *w == ' ') ++w;
+                if (w >= para_end) break;
+                const char* w_end = w;
+                while (w_end < para_end && *w_end != ' ') ++w_end;
+                const float word_w = ui_text_range_width(w, w_end, size, sp);
+                if (line.empty()) {
+                    line.assign(w, w_end);
+                    line_w = word_w;
+                } else {
+                    const float joined = line_w + space_w + 2.0f * sp + word_w;
+                    if (joined > max_width) {
+                        emit(line);
+                        line.assign(w, w_end);
+                        line_w = word_w;
+                    } else {
+                        line.push_back(' ');
+                        line.append(w, w_end);
+                        line_w = joined;
+                    }
+                }
+                w = w_end;
+            }
+            if (!line.empty()) emit(line);
+        }
+        if (para_end >= text_end) break;
+        p = para_end + 1;
+    }
 }
 
 inline std::vector<std::string> wrap_ui_text(const std::string& text, float max_width, float size) {
     std::vector<std::string> lines;
     if (text.empty() || max_width <= 0.0f) { lines.push_back(text); return lines; }
-
-    std::string paragraph;
-    std::size_t start = 0;
-    while (start <= text.size()) {
-        const std::size_t end = text.find('\n', start);
-        paragraph = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
-        if (paragraph.empty()) {
-            lines.emplace_back();
-        } else {
-            std::string current;
-            std::size_t word_start = 0;
-            while (word_start < paragraph.size()) {
-                while (word_start < paragraph.size() && paragraph[word_start] == ' ') ++word_start;
-                if (word_start >= paragraph.size()) break;
-                std::size_t word_end = paragraph.find(' ', word_start);
-                const std::string word = paragraph.substr(word_start, word_end == std::string::npos ? std::string::npos : word_end - word_start);
-                const std::string candidate = current.empty() ? word : current + " " + word;
-                if (!current.empty() && measure_ui_text(candidate, size).x > max_width) {
-                    lines.push_back(current);
-                    current = word;
-                } else {
-                    current = candidate;
-                }
-                if (word_end == std::string::npos) break;
-                word_start = word_end + 1;
-            }
-            if (!current.empty()) lines.push_back(current);
-        }
-        if (end == std::string::npos) break;
-        start = end + 1;
-    }
+    for_each_wrapped_ui_line(text, max_width, size, [&](const std::string& line) { lines.push_back(line); });
     if (lines.empty()) lines.push_back(text);
     return lines;
 }
 
-inline float measure_wrapped_ui_text_height(const std::string& text, float max_width, float size, float line_gap = 4.0f) {
-    const auto lines = wrap_ui_text(text, max_width, size);
-    if (lines.empty()) return 0.0f;
-    return lines.size() * size + (lines.size() - 1) * line_gap;
+inline int count_wrapped_ui_lines(const std::string& text, float max_width, float size) {
+    if (text.empty() || max_width <= 0.0f) return 1;
+    int count = 0;
+    for_each_wrapped_ui_line(text, max_width, size, [&](const std::string&) { ++count; });
+    return std::max(count, 1);
 }
 
+inline float measure_wrapped_ui_text_height(const std::string& text, float max_width, float size, float line_gap = 4.0f) {
+    const int lines = count_wrapped_ui_lines(text, max_width, size);
+    return static_cast<float>(lines) * size + static_cast<float>(lines - 1) * line_gap;
+}
+
+// Wrapped paragraph.  Kept for compatibility: a line is drawn while its top is
+// inside `bounds`, so the last line may extend past the bottom edge.  Use
+// draw_text_block_fit() for strict clipping with an ellipsis.
 inline void draw_text_block(const std::string& text, Rectangle bounds, float size, Color color, float line_gap = 4.0f) {
-    const auto lines = wrap_ui_text(text, bounds.width, size);
+    if (text.empty() || bounds.width <= 0.0f) {
+        DrawTextEx(ui_font(), text.c_str(), {bounds.x, bounds.y}, size, ui_text_spacing(size), color);
+        return;
+    }
     float y = bounds.y;
-    for (const auto& line : lines) {
+    bool done = false;
+    for_each_wrapped_ui_line(text, bounds.width, size, [&](const std::string& line) {
+        if (done) return;
         DrawTextEx(ui_font(), line.c_str(), {bounds.x, y}, size, ui_text_spacing(size), color);
         y += size + line_gap;
-        if (y > bounds.y + bounds.height) break;
-    }
+        if (y > bounds.y + bounds.height) done = true;
+    });
 }
 
 // ── Color utilities ───────────────────────────────────────────────────────────
@@ -348,6 +510,9 @@ inline Color glow_tint(Color c, float strength) {
 // star layer, a cinematic vignette, and a barely-there scanline grain.  This is
 // the single surface every glass panel floats over, so its translucency reads.
 inline void draw_background(int screen_width, int screen_height) {
+    // Frame-start hook: apply the pointer cursor widgets requested last frame.
+    ui_apply_cursor_requests();
+
     const float W = static_cast<float>(screen_width);
     const float H = static_cast<float>(screen_height);
     const Rectangle frame = {0.0f, 0.0f, W, H};
@@ -385,8 +550,10 @@ inline void draw_background(int screen_width, int screen_height) {
         const float tw   = 0.55f + 0.45f * std::sin(t * (0.5f + seed * 1.4f) + static_cast<float>(i) * 1.7f);
         const unsigned char a = clamp_u8(34.0f + seed * 150.0f * tw);
         const Color sc = seed > 0.86f ? Color{188, 232, 246, a} : Color{150, 186, 212, a};
-        DrawCircleV({x, y}, size, sc);
-        if (size > 1.5f) DrawCircleV({x, y}, size + 1.4f, with_alpha(sc, a / 5));  // faint halo on bright stars
+        // Sub-2 px dots: 8 segments is indistinguishable from DrawCircleV's 36
+        // and cuts ~4.5x the triangles this full-screen pass emits every frame.
+        DrawCircleSector({x, y}, size, 0.0f, 360.0f, 8, sc);
+        if (size > 1.5f) DrawCircleSector({x, y}, size + 1.4f, 0.0f, 360.0f, 10, with_alpha(sc, a / 5));  // faint halo on bright stars
     }
 
     // Cinematic vignette — darken the frame edges to push focus inward.
@@ -512,6 +679,63 @@ inline void draw_text(const std::string& text, Vector2 position, float size, Col
     DrawTextEx(ui_font(), text.c_str(), position, size, sp, color);
 }
 
+// Text that must stay inside `max_width`: shrink from `preferred` toward
+// `min_size` (never below kUiMinTextPx), then ellipsize.  Returns the size used.
+inline float draw_text_fit(const std::string& text, Vector2 position, float max_width,
+                           float preferred, float min_size, Color color) {
+    const float floor_px = std::min(preferred, std::max(min_size, kUiMinTextPx));
+    const float size = fit_ui_text_size(text, max_width, preferred, floor_px);
+    if (measure_ui_text(text, size).x <= max_width) {
+        draw_text(text, position, size, color);
+    } else {
+        draw_text(ellipsize_ui_text(text, max_width, size), position, size, color);
+    }
+    return size;
+}
+
+// Same, horizontally aligned inside a box: align 0 = left, 0.5 = centre,
+// 1 = right; vertically centred on the box.
+inline float draw_text_fit_in(const std::string& text, Rectangle box, float preferred, float min_size,
+                              Color color, float align = 0.0f) {
+    const float floor_px = std::min(preferred, std::max(min_size, kUiMinTextPx));
+    const float size = fit_ui_text_size(text, box.width, preferred, floor_px);
+    const bool fits = measure_ui_text(text, size).x <= box.width;
+    const std::string shown = fits ? text : ellipsize_ui_text(text, box.width, size);
+    const float w = measure_ui_text(shown, size).x;
+    draw_text(shown, {box.x + (box.width - w) * align, box.y + (box.height - size) * 0.5f}, size, color);
+    return size;
+}
+
+// Wrapped paragraph clipped strictly to `bounds`: only whole lines that fit
+// are drawn, and if text was cut the last visible line ends in "...".
+// Returns the height actually used.
+inline float draw_text_block_fit(const std::string& text, Rectangle bounds, float size, Color color,
+                                 float line_gap = 4.0f) {
+    if (bounds.width <= 0.0f || bounds.height + 0.5f < size) return 0.0f;
+    const int max_lines = std::max(1, static_cast<int>((bounds.height + line_gap + 0.5f) / (size + line_gap)));
+    int drawn = 0;
+    bool truncated = false;
+    std::string pending;          // hold one line back so the last visible one can be ellipsized
+    bool have_pending = false;
+    float y = bounds.y;
+    auto flush = [&](const std::string& line, bool cut) {
+        draw_text(cut ? ellipsize_ui_text(line + " ...", bounds.width, size) : line, {bounds.x, y}, size, color);
+        y += size + line_gap;
+        ++drawn;
+    };
+    for_each_wrapped_ui_line(text, bounds.width, size, [&](const std::string& line) {
+        if (truncated) return;
+        if (have_pending) {
+            if (drawn + 1 >= max_lines) { flush(pending, true); truncated = true; have_pending = false; return; }
+            flush(pending, false);
+        }
+        pending = line;
+        have_pending = true;
+    });
+    if (have_pending) flush(pending, false);
+    return drawn > 0 ? static_cast<float>(drawn) * size + static_cast<float>(drawn - 1) * line_gap : 0.0f;
+}
+
 // Badge: frosted pill with a soft glow halo and glass top sheen.
 inline void draw_badge(Rectangle rect, const char* label, Color fill, Color text_color, float scale = 1.0f) {
     // Glow halo
@@ -523,10 +747,15 @@ inline void draw_badge(Rectangle rect, const char* label, Color fill, Color text
                          0.50f, 12, with_alpha(lighten(fill, 0.35f), 30));
     DrawRectangleRoundedLines(rect, 0.50f, 12, 1.0f, with_alpha(text_color, 95));
 
-    const float th = fit_ui_text_size(label, rect.width - 10.0f * scale, 14.0f * scale, 10.0f * scale);
-    const Vector2 ts = measure_ui_text(label, th);
-    draw_text(label, {rect.x + (rect.width - ts.x) * 0.5f, rect.y + (rect.height - ts.y) * 0.5f}, th, text_color);
+    // Shrink to fit, then ellipsize rather than spill past the pill.
+    const float pad = std::min(10.0f * scale, rect.width * 0.18f);
+    draw_text_fit_in(label, {rect.x + pad * 0.5f, rect.y, rect.width - pad, rect.height},
+                     std::min(14.0f * scale, rect.height * 0.72f), 10.0f * scale, text_color, 0.5f);
 }
+
+// Back navigation key at an explicit rectangle, so a screen can seat it inside
+// its own header instead of underneath it.
+inline bool draw_back_button(Rectangle rect, float scale = 1.0f, const char* label = "< Back");
 
 // Button: frosted glass key with hover lift, pressed inset, and an accent
 // base bar that lights on hover.  Sharp-ish corners keep the sci-fi register.
@@ -575,10 +804,15 @@ inline bool draw_button(Rectangle rect,
                    1.6f, with_alpha(text_color, 130));
     }
 
-    const float th = fit_ui_text_size(label, rect.width - 16.0f * scale, 19.0f * scale, 12.0f * scale);
-    const Vector2 ts = measure_ui_text(label, th);
-    const float ny = rect.y + (rect.height - ts.y) * 0.5f + (pressed_now ? 1.0f : 0.0f);
-    draw_text(label, {rect.x + (rect.width - ts.x) * 0.5f, ny}, th, text);
+    if (hot) ui_request_cursor(MOUSE_CURSOR_POINTING_HAND);
+
+    // Label: shrink toward 12 px, then ellipsize instead of spilling outside
+    // the key.  Never taller than ~56% of the key so short keys stay balanced.
+    const float pad = std::min(16.0f * scale, rect.width * 0.12f);
+    const float preferred = std::min(19.0f * scale, rect.height * 0.56f);
+    draw_text_fit_in(label,
+                     {rect.x + pad * 0.5f, rect.y + (pressed_now ? 1.0f : 0.0f), rect.width - pad, rect.height},
+                     preferred, std::min(preferred, 12.0f * scale), text, 0.5f);
     return clicked;
 }
 
@@ -592,6 +826,7 @@ inline bool draw_checkbox(Rectangle rect,
     const Vector2 mouse = GetMousePosition();
     const bool hot     = CheckCollisionPointRec(mouse, rect);
     const bool pressed = hot && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+    if (hot) ui_request_cursor(MOUSE_CURSOR_POINTING_HAND);
 
     const Color fill   = hot ? WL::GLASS_3 : WL::GLASS_1;
     const Color border = hot ? with_alpha(accent, 130) : WL::GLASS_BORDER;
@@ -630,17 +865,20 @@ inline bool draw_checkbox(Rectangle rect,
     }
 
     const float lx = rect.x + 34.0f * scale;
-    const float label_size = fit_ui_text_size(label, rect.width - 50.0f * scale, 18.0f * scale, 13.0f * scale);
-    draw_text(label, {lx, rect.y + 8.0f * scale}, label_size, WL::TEXT_PRIMARY);
-    draw_text_block(note,
-                    {lx, rect.y + 26.0f * scale, rect.width - 44.0f * scale, rect.height - 30.0f * scale},
-                    13.5f * scale,
-                    WL::TEXT_TERTIARY,
-                    2.0f * scale);
+    draw_text_fit(label, {lx, rect.y + 8.0f * scale}, rect.width - 50.0f * scale,
+                  18.0f * scale, 13.0f * scale, WL::TEXT_PRIMARY);
+    draw_text_block_fit(note,
+                        {lx, rect.y + 26.0f * scale, rect.width - 44.0f * scale, rect.height - 30.0f * scale},
+                        13.5f * scale,
+                        WL::TEXT_TERTIARY,
+                        2.0f * scale);
     return pressed;
 }
 
 // Metric tile — frosted data-readout cell with an accent ledger line.
+// Label and value always stay inside the tile: the vertical layout adapts to
+// the tile height (Cosmos uses 40 px tiles, the HUD 54-60 px), the value
+// shrinks toward a legible floor and is ellipsized if it still does not fit.
 inline void draw_metric(Rectangle rect,
                         const char* label,
                         const std::string& value,
@@ -651,10 +889,27 @@ inline void draw_metric(Rectangle rect,
     DrawLineEx({rect.x + 3.0f, rect.y + 2.0f}, {rect.x + rect.width * 0.42f, rect.y + 2.0f},
                1.5f, with_alpha(WL::CYAN_CORE, 130));
 
-    const float label_size = 13.5f * scale;
-    const float value_size = fit_ui_text_size(value, rect.width - 18.0f * scale, 20.0f * scale, 13.0f * scale);
-    draw_text(label, {rect.x + 10.0f * scale, rect.y + 7.0f * scale}, label_size, WL::TEXT_TERTIARY);
-    draw_text(value, {rect.x + 10.0f * scale, rect.y + 24.0f * scale}, value_size, WL::TEXT_PRIMARY);
+    const float pad_x   = std::min(10.0f * scale, rect.width * 0.08f);
+    const float inner_w = std::max(0.0f, rect.width - pad_x * 2.0f);
+    const float pad_y   = std::clamp(rect.height * 0.13f, 3.0f * scale, 7.0f * scale);
+    const float gap     = 2.0f * scale;
+    const float label_size = std::max(kUiMinTextPx, std::min(13.5f * scale, rect.height * 0.28f));
+    const float value_max  = std::max(label_size,
+                                      std::min(20.0f * scale, rect.height - pad_y * 2.0f - label_size - gap));
+    const float value_floor = std::min(value_max, std::max(kUiMinTextPx + 1.0f, 11.0f * scale));
+
+    draw_text_fit(label, {rect.x + pad_x, rect.y + pad_y}, inner_w, label_size, label_size, WL::TEXT_TERTIARY);
+
+    // Value sits in the band below the label, centred vertically in it.
+    const float band_top = rect.y + pad_y + label_size + gap;
+    const float band_h   = std::max(0.0f, rect.y + rect.height - pad_y - band_top);
+    const float size     = fit_ui_text_size(value, inner_w, value_max, value_floor);
+    const float vy       = band_top + std::max(0.0f, (band_h - size) * 0.5f);
+    if (measure_ui_text(value, size).x <= inner_w) {
+        draw_text(value, {rect.x + pad_x, vy}, size, WL::TEXT_PRIMARY);
+    } else {
+        draw_text(ellipsize_ui_text(value, inner_w, size), {rect.x + pad_x, vy}, size, WL::TEXT_PRIMARY);
+    }
 }
 
 inline void draw_scrollbar(Rectangle viewport, float scroll, float max_scroll) {
@@ -670,13 +925,17 @@ inline void draw_scrollbar(Rectangle viewport, float scroll, float max_scroll) {
     DrawRectangleRoundedLines({track_x, thumb_y, track_w, thumb_h}, 0.5f, 8, 1.0f, with_alpha(WL::CYAN_CORE, 60));
 }
 
+inline bool draw_back_button(Rectangle rect, float scale, const char* label) {
+    return draw_button(rect, label, {14, 28, 46, 228}, {22, 44, 70, 255}, WL::TEXT_PRIMARY, true, scale);
+}
+
+// Size of the standard back key; screens use it to reserve header space.
+inline Vector2 back_button_size(float scale = 1.0f) { return {132.0f * scale, 36.0f * scale}; }
+
+// Legacy placement: top-left of `viewport`, inset 20 px.  Screens that have a
+// header card should prefer draw_back_button() inside that header.
 inline bool draw_back_to_menu_button(Rectangle viewport, float scale = 1.0f) {
-    return draw_button(
+    return draw_back_button(
         {viewport.x + 20.0f * scale, viewport.y + 20.0f * scale, 160.0f * scale, 36.0f * scale},
-        "< Back",
-        {14, 28, 46, 228},
-        {22, 44, 70, 255},
-        WL::TEXT_PRIMARY,
-        true,
         scale);
 }
