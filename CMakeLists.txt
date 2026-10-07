@@ -85,7 +85,9 @@ add_executable(worldline
     src/ui/UniverseAtlasScene.cpp
 )
 target_include_directories(worldline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(worldline raylib worldline_app) # worldline_cosmos comes in via worldline_app
+# The Seed Workspace's FieldRenderer advects its swarm on worker threads.
+find_package(Threads REQUIRED)
+target_link_libraries(worldline raylib worldline_app Threads::Threads) # worldline_cosmos comes in via worldline_app
 worldline_apply_warnings(worldline)
 
 # Offline tools (pure CPU, no GPU/window): the field-preview BMP renderer and

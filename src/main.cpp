@@ -4,6 +4,7 @@
 #include "app/UniverseProject.hpp"
 #include "app/WorldlineCopy.hpp"
 #include "app/WorldlineStorage.hpp"
+#include "renderer/FieldRenderer.hpp"
 #include "renderer/Renderer.hpp"
 #include "ui/CosmosExplorerScene.hpp"
 #include "ui/GuidedFirstUniverseScene.hpp"
@@ -26,6 +27,12 @@ int main() {
 
     Renderer renderer(GetScreenWidth(), GetScreenHeight());
     renderer.set_bloom_enabled(boot_settings.gpu_bloom);
+    // The Seed Workspace's stage backend: the generated law advected across a
+    // whole swarm of test masses. The pendulum view of the same live state
+    // stays one keypress (V) away.
+    FieldRenderer field(GetScreenWidth(), GetScreenHeight());
+    bool seeded_field_view = true;
+    double field_last_elapsed = 0.0;
     // AppState embeds a Trail<65536> (~1.5 MB) by value, which overflows the
     // default 1 MB thread stack if placed there. Allocate it on the heap, the
     // same way SeededUniverseRuntime (which also carries a Trail) is owned.
@@ -54,6 +61,7 @@ int main() {
 
     while (!WindowShouldClose()) {
         renderer.ensure_size(GetScreenWidth(), GetScreenHeight());
+        field.ensure_size(GetScreenWidth(), GetScreenHeight());
         if (trail_screen != app.ui.screen) {
             renderer.reset_trail();
             default_trail_needs_upload = (app.ui.screen == AppScreen::REFERENCE_LAB);
@@ -144,28 +152,42 @@ int main() {
             if (app.ui.seeded.runtime != nullptr && app.ui.seeded.runtime->ready()) {
                 SeededUniverseRuntime& runtime = *app.ui.seeded.runtime;
                 const int new_segments = runtime.step(GetFrameTime());
-                seeded_layout = renderer.make_layout(
-                    canvas,
-                    false,
-                    runtime.visual_simulation.rigid_connectors(),
-                    runtime.visual_simulation.bob1_pos(),
-                    runtime.visual_simulation.bob2_pos(),
-                    runtime.visual_simulation.reach());
-                if (runtime.trail_needs_upload) {
-                    if (!runtime.trail.empty()) {
-                        renderer.advance_trail(
-                            runtime.trail,
-                            static_cast<int>(runtime.trail.size()),
-                            seeded_layout,
-                            1);
+                if (seeded_field_view) {
+                    if (!field.configured_for(runtime.config_token)) {
+                        field.configure(*runtime.law_spec, runtime.config_token, app.ui.seeded.result.seed);
+                        field_last_elapsed = runtime.elapsed_time;
                     }
-                    runtime.trail_needs_upload = false;
-                }
-                if (new_segments > 0) {
-                    renderer.advance_trail(runtime.trail,
-                                           new_segments,
-                                           seeded_layout,
-                                           trail_fade_alpha(app.visuals));
+                    // A restart rewinds the runtime clock: respawn the swarm too.
+                    if (runtime.elapsed_time + 1.0e-9 < field_last_elapsed && !runtime.scrubbing) {
+                        field.reset();
+                    }
+                    field_last_elapsed = runtime.elapsed_time;
+                    const bool field_running = runtime.mode == RunMode::RUNNING && !runtime.scrubbing;
+                    field.update(GetFrameTime(), field_running, runtime.law_state.q, runtime.law_state.v);
+                } else {
+                    seeded_layout = renderer.make_layout(
+                        seed_workspace_layout(canvas).stage,
+                        false,
+                        runtime.visual_simulation.rigid_connectors(),
+                        runtime.visual_simulation.bob1_pos(),
+                        runtime.visual_simulation.bob2_pos(),
+                        runtime.visual_simulation.reach());
+                    if (runtime.trail_needs_upload) {
+                        if (!runtime.trail.empty()) {
+                            renderer.advance_trail(
+                                runtime.trail,
+                                static_cast<int>(runtime.trail.size()),
+                                seeded_layout,
+                                1);
+                        }
+                        runtime.trail_needs_upload = false;
+                    }
+                    if (new_segments > 0) {
+                        renderer.advance_trail(runtime.trail,
+                                               new_segments,
+                                               seeded_layout,
+                                               trail_fade_alpha(app.visuals));
+                    }
                 }
             }
         } else {
@@ -181,13 +203,39 @@ int main() {
         if (app.ui.screen == AppScreen::GUIDED_FIRST_UNIVERSE) {
             guided_result = draw_guided_first_universe_scene(app, canvas);
         } else if (app.ui.screen == AppScreen::SEEDED_WORKSPACE) {
+            FieldReadout readout{};
+            readout.field_view = seeded_field_view;
             if (app.ui.seeded.runtime != nullptr && app.ui.seeded.runtime->ready()) {
-                renderer.draw_scene(app.ui.seeded.runtime->visual_simulation,
-                                    seeded_layout,
-                                    {},
-                                    nullptr);
+                if (seeded_field_view) {
+                    if (field.configured_for(app.ui.seeded.runtime->config_token)) {
+                        field.draw(seed_workspace_layout(canvas).stage);
+                        const FieldRenderer::Metrics& m = field.metrics();
+                        readout.valid = true;
+                        readout.exotic_index = m.exotic_index;
+                        readout.vorticity = m.vorticity;
+                        readout.flux = m.flux;
+                        readout.coherence = m.coherence;
+                        readout.handedness = m.handedness;
+                        readout.particles = field.particle_count();
+                        readout.cool = field.palette_cool();
+                        readout.hot = field.palette_hot();
+                        readout.accent = field.palette_accent();
+                    }
+                } else {
+                    // No force vectors in the seeded view (they describe the
+                    // reference pendulum's physics, not the generated law).
+                    VectorOverlayConfig no_vectors{};
+                    no_vectors.enabled = false;
+                    no_vectors.show_velocity = no_vectors.show_gravity = no_vectors.show_drag = false;
+                    no_vectors.show_reaction = no_vectors.show_net = no_vectors.show_link_drag = false;
+                    no_vectors.show_joint_torque = false;
+                    renderer.draw_scene(app.ui.seeded.runtime->visual_simulation,
+                                        seeded_layout,
+                                        no_vectors,
+                                        nullptr);
+                }
             }
-            workspace_result = draw_seed_workspace_scene(app, canvas);
+            workspace_result = draw_seed_workspace_scene(app, canvas, readout);
         } else if (app.ui.screen == AppScreen::UNIVERSE_ATLAS) {
             atlas_result = draw_universe_atlas_scene(app, canvas);
         } else if (app.ui.screen == AppScreen::TRACE) {
@@ -213,6 +261,15 @@ int main() {
         EndDrawing();
 
         PanelCommand command = PanelCommand::NONE;
+        if (app.ui.screen == AppScreen::SEEDED_WORKSPACE && workspace_result.toggle_view) {
+            seeded_field_view = !seeded_field_view;
+            // The pendulum trail is only maintained while its view is active, so
+            // rebuild it from the runtime's full history when switching back.
+            renderer.reset_trail();
+            if (app.ui.seeded.runtime != nullptr) {
+                app.ui.seeded.runtime->trail_needs_upload = !seeded_field_view;
+            }
+        }
         if (guided_result.open_workspace) {
             app.ui.screen = AppScreen::SEEDED_WORKSPACE;
             app.ui.settings_open = false;

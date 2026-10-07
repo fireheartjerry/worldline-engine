@@ -24,12 +24,29 @@ inline std::string first_paragraph(const std::string& text) {
     return text.substr(0, split);
 }
 
+// The descriptor's first paragraph is "HEADING\n<meta sentence about the
+// section> <substantive reading...>". For compact display, return just the
+// substantive reading (the heading is drawn as a label; the meta sentence
+// describes the section rather than the universe).
+inline std::string character_summary(const std::string& descriptor) {
+    std::string body = first_paragraph(descriptor);
+    const std::size_t nl = body.find('\n');
+    if (nl != std::string::npos) body = body.substr(nl + 1);
+    if (body.rfind("This section", 0) == 0) {
+        const std::size_t end = body.find(". ");
+        if (end != std::string::npos) body = body.substr(end + 2);
+    }
+    return body;
+}
+
 
 // Panels — defined in SeedWorkspacePanels.cpp.
 void draw_glossary_modal(bool& open, Rectangle viewport, float scale);
 void draw_timeline(Rectangle rect, SeededUniverseUiState& seeded, float scale);
-void draw_stage_overlay(Rectangle rect, const SeededUniverseUiState& seeded, const SeededUniverseRuntime* runtime, float scale);
-void draw_inspector(AppState& app, Rectangle rect, SeededUniverseUiState& seeded, float scale, SeedWorkspaceSceneResult& result);
+void draw_stage_overlay(Rectangle rect, const SeededUniverseUiState& seeded, const SeededUniverseRuntime* runtime,
+                        float scale, const FieldReadout& fr, SeedWorkspaceSceneResult& result);
+void draw_inspector(AppState& app, Rectangle rect, SeededUniverseUiState& seeded, float scale,
+                    SeedWorkspaceSceneResult& result, const FieldReadout& fr);
 void draw_header(Rectangle rect, SeededUniverseUiState& seeded, float scale);
 
 } // namespace seed_ws

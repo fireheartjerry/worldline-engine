@@ -50,7 +50,7 @@ public:
     FieldRenderer(int w, int h) { resize(w, h); build_glow_sprite(); }
 
     ~FieldRenderer() {
-        if (has_tex_) { UnloadRenderTexture(accum_); UnloadRenderTexture(bloom_); }
+        if (has_tex_) UnloadRenderTexture(accum_);
         if (glow_.id != 0) UnloadTexture(glow_);
     }
 
@@ -115,13 +115,14 @@ public:
         const float speed = 1.35f; // simulation tempo
         float remaining = frame * speed;
         const float h = 1.0f / 90.0f;
-        int guard = 0;
-        while (remaining > 1.0e-4f && guard < 8) {
+        float steps[kMaxSubsteps];
+        int nsteps = 0;
+        while (remaining > 1.0e-4f && nsteps < kMaxSubsteps) {
             const float step = std::min(h, remaining);
-            integrate(step);
+            steps[nsteps++] = step;
             remaining -= step;
-            ++guard;
         }
+        integrate(steps, nsteps);
         compute_metrics();
     }
 
@@ -132,6 +133,10 @@ public:
         const Vector2 center = {stage.x + stage.width * 0.5f, stage.y + stage.height * 0.5f};
         const float view_px = 0.5f * std::min(stage.width, stage.height);
         const float scale = view_px / view_radius_;
+        // The swarm size is fixed, so a smaller stage packs the same particles
+        // into fewer pixels and the additive buffer saturates. Normalise
+        // per-particle intensity by on-screen field area (tuned at ~280 px).
+        density_gain_ = std::clamp((view_px / 280.0f) * (view_px / 280.0f), 0.3f, 1.0f);
 
         // 1) paint particles into the feedback-fade accumulation buffer
         BeginTextureMode(accum_);
@@ -177,17 +182,15 @@ private:
     int width_ = 0, height_ = 0;
     bool has_tex_ = false;
     RenderTexture2D accum_{};
-    RenderTexture2D bloom_{};
     Texture2D glow_{};
     bool clear_accum_ = true;
     unsigned char fade_alpha_ = 21;
 
     void resize(int w, int h) {
-        if (has_tex_) { UnloadRenderTexture(accum_); UnloadRenderTexture(bloom_); }
+        if (has_tex_) UnloadRenderTexture(accum_);
         width_ = std::max(2, w);
         height_ = std::max(2, h);
         accum_ = LoadRenderTexture(width_, height_);
-        bloom_ = LoadRenderTexture(std::max(2, width_ / 2), std::max(2, height_ / 2));
         SetTextureFilter(accum_.texture, TEXTURE_FILTER_BILINEAR);
         has_tex_ = true;
         clear_accum_ = true;
@@ -304,14 +307,19 @@ private:
     }
 
     // ── integration (optionally threaded) ─────────────────────────────────────
-    void integrate(float h) {
-        for (int i = 0; i < active_; ++i) { qpx_[i] = qx_[i]; qpy_[i] = qy_[i]; }
+    static constexpr int kMaxSubsteps = 8;
+    const unsigned hw_threads_ = std::max(1u, std::thread::hardware_concurrency());
 
-        const unsigned hw = std::max(1u, std::thread::hardware_concurrency());
-        const int workers = (active_ >= 4000 && hw > 1)
-            ? static_cast<int>(std::min(hw, 8u)) : 1;
+    // Advance every particle through all of this frame's substeps. Particles
+    // are independent, so each worker owns a contiguous slice for the whole
+    // frame: one thread dispatch per frame instead of one per substep.
+    void integrate(const float* steps, int nsteps) {
+        if (nsteps <= 0) return;
+        const int workers = (active_ >= 4000 && hw_threads_ > 1)
+            ? static_cast<int>(std::min(hw_threads_, 8u)) : 1;
+        const std::uint32_t tseed = static_cast<std::uint32_t>(time_ * 1000.0);
         if (workers <= 1) {
-            integrate_range(0, active_, h, 0x51u);
+            advance_range(0, active_, steps, nsteps, 0x51u ^ tseed);
             return;
         }
         std::vector<std::thread> pool;
@@ -321,15 +329,26 @@ private:
             const int lo = w * chunk;
             const int hi = std::min(active_, lo + chunk);
             if (lo >= hi) break;
-            pool.emplace_back([this, lo, hi, h, w] {
-                integrate_range(lo, hi, h, 0x9E37u + static_cast<std::uint32_t>(w) * 2246822519u);
+            const std::uint32_t seed = (0x9E37u + static_cast<std::uint32_t>(w) * 2246822519u) ^ tseed;
+            pool.emplace_back([this, lo, hi, steps, nsteps, seed] {
+                advance_range(lo, hi, steps, nsteps, seed);
             });
         }
         for (auto& t : pool) t.join();
     }
 
-    void integrate_range(int lo, int hi, float h, std::uint32_t rng_seed) {
-        wlfield::Rng rng(rng_seed ^ static_cast<std::uint32_t>(time_ * 1000.0));
+    void advance_range(int lo, int hi, const float* steps, int nsteps, std::uint32_t rng_seed) {
+        // One continuing stream per worker per frame, so particles that die in
+        // successive substeps respawn at distinct points.
+        wlfield::Rng rng(rng_seed);
+        for (int k = 0; k < nsteps; ++k) {
+            // The streak painted for a particle is its final substep's motion.
+            for (int i = lo; i < hi; ++i) { qpx_[i] = qx_[i]; qpy_[i] = qy_[i]; }
+            integrate_range(lo, hi, steps[k], rng);
+        }
+    }
+
+    void integrate_range(int lo, int hi, float h, wlfield::Rng& rng) {
         const float resp2 = (view_radius_ * 3.2f) * (view_radius_ * 3.2f);
         const float damp = std::exp(-0.20f * h);  // gentle viscosity → concentrate on attractors
         for (int i = lo; i < hi; ++i) {
@@ -372,6 +391,8 @@ private:
                 static_cast<unsigned char>(bl), 255};
     }
 
+    float density_gain_ = 1.0f;
+
     // Per-particle screen-space appearance, computed once per visible particle.
     struct Splat { float sx, sy, px, py, t, wgt; bool streak; };
 
@@ -401,7 +422,7 @@ private:
         // Pass 1: streak lines — all share the default texture, so a single batch.
         for (const Splat& s : splats_) {
             if (!s.streak) continue;
-            Color line = ramp(s.t); line.a = static_cast<unsigned char>(172.0f * s.wgt);
+            Color line = ramp(s.t); line.a = static_cast<unsigned char>(172.0f * s.wgt * density_gain_);
             DrawLineEx({s.px, s.py}, {s.sx, s.sy}, 1.4f + 1.7f * s.t, line);
         }
         // Pass 2: glow heads — all share the glow sprite, so one more batch (no
@@ -410,21 +431,21 @@ private:
         const Rectangle gsrc = {0, 0, gw, gw};
         for (const Splat& s : splats_) {
             const float hs = 2.6f + 5.0f * s.t;
-            Color head = ramp(s.t); head.a = static_cast<unsigned char>(155.0f * s.wgt);
+            Color head = ramp(s.t); head.a = static_cast<unsigned char>(155.0f * s.wgt * density_gain_);
             DrawTexturePro(glow_, gsrc, {s.sx - hs, s.sy - hs, hs * 2.0f, hs * 2.0f}, {0, 0}, 0.0f, head);
         }
     }
     std::vector<Splat> splats_;
 
     void draw_bloom_tap(Rectangle stage, Vector2 center, float zoom, unsigned char alpha) {
-        const Rectangle src = {0.0f, 0.0f, static_cast<float>(width_), -static_cast<float>(height_)};
         const float w = stage.width * zoom, h = stage.height * zoom;
         const Rectangle dst = {center.x - w * 0.5f, center.y - h * 0.5f, w, h};
-        // map only the stage sub-rectangle of the accum, zoomed about the centre
-        const float u0 = stage.x / width_, v0 = stage.y / height_;
-        const float uw = stage.width / width_, vh = stage.height / height_;
-        const Rectangle ssrc = {u0 * width_, (1.0f - v0) * height_, uw * width_, -(vh * height_)};
-        (void)src;
+        // Map only the stage sub-rectangle of the accum, zoomed about the centre.
+        // Render textures are stored bottom-up (screen y -> texel row H - y), and
+        // DrawTexturePro with a negative source height samples [y, y+|h|]
+        // flipped, so the stage's rows start at H - stage.y - stage.height.
+        const Rectangle ssrc = {stage.x, static_cast<float>(height_) - stage.y - stage.height,
+                                stage.width, -stage.height};
         DrawTexturePro(accum_.texture, ssrc, dst, {0, 0}, 0.0f, {255, 255, 255, alpha});
     }
 
