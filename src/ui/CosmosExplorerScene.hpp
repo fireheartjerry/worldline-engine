@@ -126,6 +126,8 @@ struct CosmosState {
     bool has_sim = false;
     bool running = false;
     int step_count = 0;      // fixed steps taken (drives exact reproduction)
+    int replay_remaining = 0; // bookmark steps still to replay (spread over frames)
+    int replay_total = 0;
     double accumulator = 0.0;
     double elapsed = 0.0;
     bool browser_open = false;  // saved-sandbox browser modal

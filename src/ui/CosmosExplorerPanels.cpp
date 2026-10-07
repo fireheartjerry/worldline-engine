@@ -166,20 +166,25 @@ void save_current_sandbox(const CosmosState &cosmos) {
     Storage::save_cosmos_bookmark(b);
 }
 
-// Reproduce a saved sandbox exactly: re-spawn deterministically and replay the
-// recorded number of fixed steps.
+// Reproduce a saved sandbox exactly: re-spawn deterministically, then replay
+// the recorded number of fixed steps. The replay runs incrementally in
+// step_cosmos (bounded work per frame), so long bookmarks don't freeze the UI.
 void restore_bookmark(AppState &app, CosmosState &cosmos, const CosmosBookmark &b) {
     app.ui.seeded.seed_input = b.seed;
     cosmos.configure(b.seed);
     const int idx = std::clamp(b.scale_index, 0, static_cast<int>(kScaleCount) - 1);
     cosmos.set_scale(static_cast<Scale>(idx));
+    cosmos.clear_sim();
     populate_sandbox(cosmos.system, cosmos.catalog, cosmos.genome, cosmos.scale);
-    advance_sandbox(cosmos.system, std::max(0, b.steps));
     cosmos.has_sim = !cosmos.system.bodies.empty();
     cosmos.running = false;
-    cosmos.step_count = std::max(0, b.steps);
+    cosmos.step_count = 0;
+    cosmos.replay_total = cosmos.replay_remaining = std::max(0, b.steps);
     cosmos.accumulator = 0.0;
-    cosmos.elapsed = cosmos.step_count * kSandboxDt;
+    cosmos.elapsed = 0.0;
+    // A bookmark is a tier-sandbox state: show it (the browser is also
+    // reachable from the descent map, which would otherwise hide the result).
+    cosmos.descent_mode = false;
 }
 
 void draw_ladder(CosmosState &cosmos, Rectangle rect, float scale) {

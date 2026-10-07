@@ -40,6 +40,8 @@ void CosmosState::clear_sim() {
     has_sim = false;
     running = false;
     step_count = 0;
+    replay_remaining = 0;
+    replay_total = 0;
     accumulator = 0.0;
     elapsed = 0.0;
 }
@@ -52,6 +54,19 @@ void CosmosState::spawn() {
 }
 
 void step_cosmos(CosmosState& cosmos, float frame_time) {
+    // Bookmark replay: the same fixed steps a synchronous replay would take, but
+    // spread over frames (~6 ms of work each) so a long bookmark never freezes
+    // the window. Order and count are identical, so the result is exact.
+    if (cosmos.has_sim && cosmos.replay_remaining > 0) {
+        const double t0 = GetTime();
+        while (cosmos.replay_remaining > 0 && GetTime() - t0 < 0.006) {
+            advance_sandbox(cosmos.system, 1);
+            --cosmos.replay_remaining;
+            ++cosmos.step_count;
+        }
+        cosmos.elapsed = cosmos.step_count * kSandboxDt;
+        return;
+    }
     if (!cosmos.has_sim || !cosmos.running) {
         return;
     }
@@ -228,7 +243,12 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
             renderer.draw_field(sprites, stage);
             draw_text(std::string(tier_for(cosmos.scale).name) + " sandbox  -  " +
                           std::to_string(cosmos.system.bodies.size()) + " bodies" +
-                          (cosmos.running ? "  [running]" : "  [paused]"),
+                          (cosmos.replay_remaining > 0
+                               ? "  [replaying " +
+                                     std::to_string(100 - (100 * cosmos.replay_remaining) /
+                                                              std::max(1, cosmos.replay_total)) +
+                                     "%]"
+                               : (cosmos.running ? "  [running]" : "  [paused]")),
                       {stage.x + 14.0f * scale, stage.y + 12.0f * scale}, 13.0f * scale,
                       with_alpha(WL::TEXT_SECONDARY, 220));
             draw_cosmos_scale_hud(cosmos, stage, scale);
