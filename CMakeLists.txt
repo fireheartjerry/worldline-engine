@@ -14,6 +14,37 @@ function(worldline_apply_warnings target_name)
     endif()
 endfunction()
 
+# Optional runtime sanitizers for worldline's own targets (never raylib), e.g.
+#   cmake --preset asan            (WORLDLINE_SANITIZE=address,undefined)
+#   cmake -B build-x -DWORLDLINE_SANITIZE=address,undefined,float-cast-overflow
+# The value is passed straight to -fsanitize= on GCC/Clang. Any UB report aborts
+# the process (-fno-sanitize-recover) so ctest turns it into a failing test.
+# MSVC only supports AddressSanitizer.
+set(WORLDLINE_SANITIZE "" CACHE STRING
+    "Comma-separated sanitizers for worldline targets (e.g. address,undefined); empty = off")
+
+function(worldline_apply_sanitizers target_name)
+    if (WORLDLINE_SANITIZE STREQUAL "")
+        return()
+    endif()
+    if (MSVC)
+        if (WORLDLINE_SANITIZE STREQUAL "address")
+            target_compile_options(${target_name} PRIVATE /fsanitize=address /Zi)
+        else()
+            message(FATAL_ERROR "MSVC supports only WORLDLINE_SANITIZE=address (got '${WORLDLINE_SANITIZE}')")
+        endif()
+    elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        set(_san_flags -fsanitize=${WORLDLINE_SANITIZE} -fno-omit-frame-pointer)
+        if (WORLDLINE_SANITIZE MATCHES "undefined")
+            list(APPEND _san_flags -fno-sanitize-recover=undefined)
+        endif()
+        target_compile_options(${target_name} PRIVATE ${_san_flags})
+        target_link_options(${target_name} PRIVATE -fsanitize=${WORLDLINE_SANITIZE})
+    else()
+        message(FATAL_ERROR "WORLDLINE_SANITIZE is not supported for ${CMAKE_CXX_COMPILER_ID}")
+    endif()
+endfunction()
+
 include(FetchContent)
 # raylib 5.0 declares a cmake_minimum_required below 3.5, which CMake 4.x (now on
 # the macOS/Windows CI runners) rejects outright. Raise the policy floor so the
@@ -451,6 +482,16 @@ target_include_directories(worldline_cosmos_cosmography_tests PRIVATE ${CMAKE_CU
 target_link_libraries(worldline_cosmos_cosmography_tests PRIVATE worldline_cosmos)
 worldline_apply_warnings(worldline_cosmos_cosmography_tests)
 add_test(NAME cosmos_cosmography_verification COMMAND worldline_cosmos_cosmography_tests)
+
+# Sanitize every library/executable defined in this directory. raylib is added
+# from its own FetchContent subdirectory, so it is not in this list.
+get_property(_worldline_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_target IN LISTS _worldline_targets)
+    get_target_property(_type ${_target} TYPE)
+    if (_type MATCHES "^(EXECUTABLE|STATIC_LIBRARY|SHARED_LIBRARY|OBJECT_LIBRARY)$")
+        worldline_apply_sanitizers(${_target})
+    endif()
+endforeach()
 
 install(TARGETS worldline RUNTIME DESTINATION .)
 install(FILES README.md LICENSE DESTINATION .)

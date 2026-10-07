@@ -1,6 +1,7 @@
 # Build output
 build/
 build-release/
+build-asan/
 worldline-data/
 
 # CMake generated
