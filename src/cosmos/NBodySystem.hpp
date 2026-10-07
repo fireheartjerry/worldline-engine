@@ -46,6 +46,13 @@ struct Body {
 
 // A 2D N-body sandbox. O(N^2) pairwise forces; intended for up to a few hundred
 // bodies at interactive rates. Integrated with velocity-Verlet (symplectic).
+//
+// step() caches the per-pair force constants and the accelerations at the end
+// of each step (forces depend only on positions + body/force parameters, never
+// on velocity), so the next substep/step reuses them instead of recomputing.
+// The cache is validated bit-for-bit against `bodies` and `params` on every
+// step(), so mutating either between steps is always safe; results are
+// bit-identical to evaluating the forces from scratch every time.
 class NBodySystem {
 public:
     std::vector<Body> bodies;
@@ -53,7 +60,7 @@ public:
 
     void step(double dt, int substeps = 4);
 
-    std::vector<Vec2> accelerations() const;
+    std::vector<Vec2> accelerations() const; // fresh evaluation (no cache)
 
     // Observables for the "analyze" surface.
     double kinetic_energy() const;
@@ -71,8 +78,34 @@ public:
     double max_radius() const;       // farthest body from the center of mass
 
 private:
-    void accumulate_pair(int i, int j, std::vector<Vec2>& accel) const;
+    // Per-pair constants of the force law: everything in the pair force that
+    // does not depend on the separation (pow(sigma, core_power) is the costly
+    // one). Stored for i < j in row-major upper-triangle order.
+    struct PairTerms {
+        double gravity = 0.0;  // G * m_i * m_j
+        double coulomb = 0.0;  // -k * q_i * q_j
+        double core = 0.0;     // core * core_power * sigma^core_power
+        double bond_r0 = 0.0;  // binding well center
+        double bond_w2 = 0.0;  // w^2
+        double bond_2w2 = 0.0; // 2 w^2
+    };
+
+    // Inputs a cached evaluation was made from (compared bitwise).
+    struct BodyKey {
+        double x, y, mass, charge, radius;
+    };
+
     double pair_potential(int i, int j) const;
+    void build_pair_terms(std::vector<PairTerms>& terms) const;
+    void evaluate_accelerations(const std::vector<PairTerms>& terms, std::vector<Vec2>& accel) const;
+    bool cache_inputs_match(bool& positions_match) const;
+    void remember_cache_inputs();
+
+    std::vector<PairTerms> pair_terms_;  // valid while cache_valid_
+    std::vector<Vec2> accel_;            // accelerations at cache_key_ positions
+    std::vector<BodyKey> cache_key_;
+    ForceParams cache_params_{};
+    bool cache_valid_ = false;
 };
 
 } // namespace cosmos

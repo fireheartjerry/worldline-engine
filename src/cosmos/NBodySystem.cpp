@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace cosmos {
 
@@ -121,90 +122,166 @@ ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
 
 namespace {
 
-// Scalar coefficient k such that the pair force on body i is k * r, with
-// r = pos_j - pos_i. Aggregates every force term (all act along r).
-double pair_force_coeff(const Body& bi, const Body& bj, const ForceParams& p,
-                        double d2) {
-    const double soft2 = d2 + p.softening * p.softening;
-    const double d = std::sqrt(std::max(d2, 1.0e-18));
-
-    // Gravity (softened, potential-consistent for any exponent).
-    double coeff = p.gravity * bi.mass * bj.mass *
-                   std::pow(soft2, -(p.exponent + 1.0) * 0.5);
-
-    // Linear confinement: attraction that grows with separation (quark-style).
-    if (p.linear != 0.0) {
-        coeff += p.linear;
-    }
-
-    // Coulomb: like charges (product > 0) push apart, hence the minus sign.
-    if (p.charge != 0.0) {
-        coeff += -p.charge * bi.charge * bj.charge * std::pow(soft2, -1.5);
-    }
-
-    // Soft-core exclusion: strong short-range repulsion preventing overlap.
-    if (p.core != 0.0) {
-        const double sigma = bi.radius + bj.radius;
-        coeff += p.core * p.core_power * std::pow(sigma, p.core_power) *
-                 std::pow(soft2, -(p.core_power + 2.0) * 0.5);
-    }
-
-    // Short-range binding well centered at ~contact distance.
-    if (p.strong != 0.0) {
-        const double sigma = bi.radius + bj.radius;
-        const double r0 = p.bond_range * sigma;
-        const double w = std::max(p.bond_width * sigma, 1.0e-6);
-        const double delta = d - r0;
-        const double well = std::exp(-(delta * delta) / (2.0 * w * w));
-        // force_d = -dU/dd with U = -strong*well; project onto r via /d.
-        const double force_d = -p.strong * (delta / (w * w)) * well;
-        coeff += force_d / d;
-    }
-
-    return coeff;
+bool same_bits(double a, double b) {
+    return std::memcmp(&a, &b, sizeof(double)) == 0;
 }
 
 } // namespace
 
-void NBodySystem::accumulate_pair(int i, int j, std::vector<Vec2>& accel) const {
-    const Body& bi = bodies[static_cast<std::size_t>(i)];
-    const Body& bj = bodies[static_cast<std::size_t>(j)];
-    const Vec2 r = bj.pos - bi.pos;
-    const double d2 = r.length_sq();
-    const double coeff = pair_force_coeff(bi, bj, params, d2);
-    const Vec2 force = r * coeff; // force on i
-    accel[static_cast<std::size_t>(i)] += force / bi.mass;
-    accel[static_cast<std::size_t>(j)] -= force / bj.mass;
+// The pair force on body i is coeff * r, with r = pos_j - pos_i; every force
+// term acts along r. build_pair_terms() hoists the separation-independent
+// factors and evaluate_accelerations() applies the separation-dependent ones.
+// Each expression keeps the exact operand order of the original single-pass
+// formula (e.g. G*m_i*m_j*pow(...) == (G*m_i*m_j) * pow(...) left to right),
+// so the split is bit-identical, not merely close.
+void NBodySystem::build_pair_terms(std::vector<PairTerms>& terms) const {
+    const std::size_t n = bodies.size();
+    terms.resize(n < 2 ? 0 : n * (n - 1) / 2);
+    const ForceParams& p = params;
+    std::size_t k = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const Body& bi = bodies[i];
+        for (std::size_t j = i + 1; j < n; ++j) {
+            const Body& bj = bodies[j];
+            PairTerms& t = terms[k++];
+            // Gravity (softened, potential-consistent for any exponent).
+            t.gravity = p.gravity * bi.mass * bj.mass;
+            // Coulomb: like charges (product > 0) push apart, hence the minus.
+            t.coulomb = -p.charge * bi.charge * bj.charge;
+            const double sigma = bi.radius + bj.radius;
+            // Soft-core exclusion: strong short-range repulsion preventing overlap.
+            t.core = (p.core != 0.0) ? p.core * p.core_power * std::pow(sigma, p.core_power) : 0.0;
+            // Short-range binding well centered at ~contact distance.
+            t.bond_r0 = p.bond_range * sigma;
+            const double w = std::max(p.bond_width * sigma, 1.0e-6);
+            t.bond_w2 = w * w;
+            t.bond_2w2 = 2.0 * w * w;
+        }
+    }
 }
 
-std::vector<Vec2> NBodySystem::accelerations() const {
+void NBodySystem::evaluate_accelerations(const std::vector<PairTerms>& terms,
+                                         std::vector<Vec2>& accel) const {
     const std::size_t n = bodies.size();
-    std::vector<Vec2> accel(n, Vec2{});
+    accel.assign(n, Vec2{});
+    const ForceParams& p = params;
+    const double soft_sq = p.softening * p.softening;
+    const double gravity_exp = -(p.exponent + 1.0) * 0.5;
+    const double core_exp = -(p.core_power + 2.0) * 0.5;
+    const double neg_strong = -p.strong;
+    const bool has_linear = p.linear != 0.0;
+    const bool has_charge = p.charge != 0.0;
+    const bool has_core = p.core != 0.0;
+    const bool has_strong = p.strong != 0.0;
+
+    // Plain pointers/doubles in the O(N^2) loop: same arithmetic as the Vec2
+    // operators, without per-operation calls in unoptimized (Debug) builds.
+    // accel[i] is accumulated in a local over j > i; it already holds the
+    // contributions of rows k < i, so every element sees its additions in
+    // exactly the original order.
+    const Body* b = bodies.data();
+    Vec2* a = accel.data();
+    const PairTerms* t = terms.data();
     for (std::size_t i = 0; i < n; ++i) {
-        for (std::size_t j = i + 1; j < n; ++j) {
-            accumulate_pair(static_cast<int>(i), static_cast<int>(j), accel);
+        const double xi = b[i].pos.x;
+        const double yi = b[i].pos.y;
+        const double mi = b[i].mass;
+        double axi = a[i].x;
+        double ayi = a[i].y;
+        for (std::size_t j = i + 1; j < n; ++j, ++t) {
+            const double rx = b[j].pos.x - xi;
+            const double ry = b[j].pos.y - yi;
+            const double d2 = rx * rx + ry * ry;
+            const double soft2 = d2 + soft_sq;
+
+            double coeff = t->gravity * std::pow(soft2, gravity_exp);
+            // Linear confinement: attraction that grows with separation (quark-style).
+            if (has_linear) coeff += p.linear;
+            if (has_charge) coeff += t->coulomb * std::pow(soft2, -1.5);
+            if (has_core) coeff += t->core * std::pow(soft2, core_exp);
+            if (has_strong) {
+                const double d = std::sqrt(std::max(d2, 1.0e-18));
+                const double delta = d - t->bond_r0;
+                const double well = std::exp(-(delta * delta) / t->bond_2w2);
+                // force_d = -dU/dd with U = -strong*well; project onto r via /d.
+                const double force_d = neg_strong * (delta / t->bond_w2) * well;
+                coeff += force_d / d;
+            }
+
+            const double fx = rx * coeff; // force on i
+            const double fy = ry * coeff;
+            axi += fx / mi;
+            ayi += fy / mi;
+            a[j].x -= fx / b[j].mass;
+            a[j].y -= fy / b[j].mass;
         }
+        a[i].x = axi;
+        a[i].y = ayi;
     }
-    if (params.confinement > 0.0) {
+
+    if (p.confinement > 0.0) {
         for (std::size_t i = 0; i < n; ++i) {
-            accel[i] -= bodies[i].pos * params.confinement;
+            accel[i] -= bodies[i].pos * p.confinement;
         }
     }
-    if (params.swirl != 0.0) {
+    if (p.swirl != 0.0) {
         for (std::size_t i = 0; i < n; ++i) {
             const Vec2& q = bodies[i].pos;
-            accel[i] += Vec2{-q.y, q.x} * params.swirl;
+            accel[i] += Vec2{-q.y, q.x} * p.swirl;
         }
     }
-    if (params.accel_cap > 0.0) {
-        for (Vec2& a : accel) {
-            const double mag = a.length();
-            if (mag > params.accel_cap) {
-                a = a * (params.accel_cap / mag);
+    if (p.accel_cap > 0.0) {
+        for (Vec2& v : accel) {
+            const double mag = v.length();
+            if (mag > p.accel_cap) {
+                v = v * (p.accel_cap / mag);
             }
         }
     }
+}
+
+std::vector<Vec2> NBodySystem::accelerations() const {
+    std::vector<PairTerms> terms;
+    build_pair_terms(terms);
+    std::vector<Vec2> accel;
+    evaluate_accelerations(terms, accel);
     return accel;
+}
+
+// True if the cached pair terms were built from exactly the current masses,
+// charges, radii and params; `positions_match` additionally reports whether
+// the cached accelerations belong to exactly the current positions. Bitwise
+// comparison, so any edit (even -0.0 vs 0.0) invalidates.
+bool NBodySystem::cache_inputs_match(bool& positions_match) const {
+    positions_match = false;
+    if (!cache_valid_ || cache_key_.size() != bodies.size() ||
+        std::memcmp(&cache_params_, &params, sizeof(ForceParams)) != 0) {
+        return false;
+    }
+    bool positions_same = true;
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        const Body& b = bodies[i];
+        const BodyKey& k = cache_key_[i];
+        if (!same_bits(k.mass, b.mass) || !same_bits(k.charge, b.charge) ||
+            !same_bits(k.radius, b.radius)) {
+            return false;
+        }
+        if (positions_same && (!same_bits(k.x, b.pos.x) || !same_bits(k.y, b.pos.y))) {
+            positions_same = false;
+        }
+    }
+    positions_match = positions_same;
+    return true;
+}
+
+void NBodySystem::remember_cache_inputs() {
+    cache_key_.resize(bodies.size());
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        const Body& b = bodies[i];
+        cache_key_[i] = BodyKey{b.pos.x, b.pos.y, b.mass, b.charge, b.radius};
+    }
+    cache_params_ = params;
+    cache_valid_ = true;
 }
 
 void NBodySystem::step(double dt, int substeps) {
@@ -215,16 +292,26 @@ void NBodySystem::step(double dt, int substeps) {
     const double h = dt / steps;
     const double half = h * 0.5;
 
+    // Velocity-Verlet (kick-drift-kick). Acceleration depends only on positions,
+    // so the acceleration evaluated at the end of one substep IS the starting
+    // acceleration of the next (and of the next step(), if nothing was edited in
+    // between): one force evaluation per substep instead of two.
+    bool positions_match = false;
+    if (!cache_inputs_match(positions_match)) {
+        build_pair_terms(pair_terms_);
+    }
+    if (!positions_match) {
+        evaluate_accelerations(pair_terms_, accel_);
+    }
+
     for (int s = 0; s < steps; ++s) {
-        // Velocity-Verlet (kick-drift-kick); acceleration is velocity-independent.
-        std::vector<Vec2> a0 = accelerations();
         for (std::size_t i = 0; i < bodies.size(); ++i) {
-            bodies[i].vel += a0[i] * half;
+            bodies[i].vel += accel_[i] * half;
             bodies[i].pos += bodies[i].vel * h;
         }
-        std::vector<Vec2> a1 = accelerations();
+        evaluate_accelerations(pair_terms_, accel_);
         for (std::size_t i = 0; i < bodies.size(); ++i) {
-            bodies[i].vel += a1[i] * half;
+            bodies[i].vel += accel_[i] * half;
         }
         if (params.damping > 0.0) {
             const double factor = std::max(0.0, 1.0 - params.damping * h);
@@ -233,6 +320,7 @@ void NBodySystem::step(double dt, int substeps) {
             }
         }
     }
+    remember_cache_inputs();
 }
 
 double NBodySystem::kinetic_energy() const {
