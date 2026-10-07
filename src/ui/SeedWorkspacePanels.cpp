@@ -119,33 +119,49 @@ void draw_timeline(Rectangle rect,
     DrawRectangleRounded(plot, 0.08f, 6, {6, 14, 24, 220});
     DrawRectangleRoundedLines(plot, 0.08f, 6, 1.0f, with_alpha(WL::GLASS_BORDER, 80));
 
-    double min_p = runtime->history.front().p_value;
-    double max_p = runtime->history.front().p_value;
-    for (const UniverseSnapshot& snapshot : runtime->history) {
-        min_p = std::min(min_p, snapshot.p_value);
-        max_p = std::max(max_p, snapshot.p_value);
-    }
-    // Inset the series so extremes don't sit on the frame, and draw a constant
-    // series (common: many laws hold p fixed) through the middle, not the edge.
-    const double raw_span = max_p - min_p;
-    const bool flat = raw_span <= 1.0e-9 * std::max(1.0, std::abs(max_p));
-    const double span = flat ? 1.0 : raw_span;
+    // Three channels, each normalised to its own range: the observable p (often
+    // held constant by the law), the state radius |q| and the speed |v|.
+    struct Channel {
+        const char* label;
+        double UniverseSnapshot::*field;
+        Color color;
+    };
+    const Channel channels[3] = {
+        {"radius", &UniverseSnapshot::q_radius, WL::XENON_CORE},
+        {"speed", &UniverseSnapshot::speed, WL::VIOLET_CORE},
+        {"p", &UniverseSnapshot::p_value, WL::CYAN_CORE},
+    };
     const float inset = std::min(6.0f * scale, plot.height * 0.2f);
     const float usable = plot.height - inset * 2.0f;
-    auto y_of = [&](double p) {
-        const double f = flat ? 0.5 : (p - min_p) / span;
-        return plot.y + inset + usable - static_cast<float>(f) * usable;
-    };
-    for (std::size_t index = 0; index + 1 < runtime->history.size(); ++index) {
-        const UniverseSnapshot& a = runtime->history[index];
-        const UniverseSnapshot& b = runtime->history[index + 1];
-        const float x0 = plot.x + static_cast<float>(index) / static_cast<float>(runtime->history.size() - 1) * plot.width;
-        const float x1 = plot.x + static_cast<float>(index + 1) / static_cast<float>(runtime->history.size() - 1) * plot.width;
-        DrawLineEx({x0, y_of(a.p_value)}, {x1, y_of(b.p_value)}, 1.5f, with_alpha(WL::CYAN_CORE, 190));
-    }
-    if (flat) {
-        draw_text("p held constant at " + metric_text(max_p, 3),
-                  {plot.x + 8.0f * scale, plot.y + 4.0f * scale}, 10.5f * scale, WL::TEXT_TERTIARY);
+    const std::size_t count = runtime->history.size();
+    float legend_x = rect.x + 200.0f * scale;
+    for (const Channel& ch : channels) {
+        double lo = runtime->history.front().*ch.field;
+        double hi = lo;
+        for (const UniverseSnapshot& snapshot : runtime->history) {
+            lo = std::min(lo, snapshot.*ch.field);
+            hi = std::max(hi, snapshot.*ch.field);
+        }
+        // A constant series is drawn through the middle, not on the frame.
+        const bool flat = (hi - lo) <= 1.0e-9 * std::max(1.0, std::abs(hi));
+        const double span = flat ? 1.0 : hi - lo;
+        auto y_of = [&](double v) {
+            const double f = flat ? 0.5 : (v - lo) / span;
+            return plot.y + inset + usable - static_cast<float>(f) * usable;
+        };
+        for (std::size_t index = 0; index + 1 < count; ++index) {
+            const float x0 = plot.x + static_cast<float>(index) / static_cast<float>(count - 1) * plot.width;
+            const float x1 = plot.x + static_cast<float>(index + 1) / static_cast<float>(count - 1) * plot.width;
+            DrawLineEx({x0, y_of(runtime->history[index].*ch.field)},
+                       {x1, y_of(runtime->history[index + 1].*ch.field)},
+                       1.4f, with_alpha(ch.color, 180));
+        }
+        // Legend chip: swatch + label + current value ("const" when flat).
+        const double now = runtime->history.back().*ch.field;
+        const std::string text = std::string(ch.label) + (flat ? " const " : " ") + metric_text(now, 2);
+        DrawRectangleRounded({legend_x, rect.y + 18.0f * scale, 10.0f * scale, 4.0f * scale}, 0.5f, 4, ch.color);
+        draw_text(text, {legend_x + 14.0f * scale, rect.y + 14.0f * scale}, 11.0f * scale, WL::TEXT_SECONDARY);
+        legend_x += measure_ui_text(text, 11.0f * scale).x + 34.0f * scale;
     }
 
     for (const TimelineMarker& marker : runtime->markers) {
