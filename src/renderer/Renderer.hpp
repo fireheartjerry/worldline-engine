@@ -32,7 +32,10 @@ public:
 
     // Toggle the GPU bloom post-process. When disabled (or when the shaders
     // failed to compile) the renderer falls back to the plain CPU trail.
-    void set_bloom_enabled(bool enabled) { bloom_enabled_ = enabled; }
+    void set_bloom_enabled(bool enabled) {
+        if (enabled && !bloom_enabled_) glow_dirty_ = true;   // buffers may be stale
+        bloom_enabled_ = enabled;
+    }
     bool bloom_enabled() const { return bloom_enabled_; }
     bool bloom_available() const { return bloom_.ready(); }
 
@@ -46,6 +49,7 @@ public:
         BeginTextureMode(trail_tex);
         ClearBackground({0, 0, 0, 0});
         EndTextureMode();
+        glow_dirty_ = true;
     }
 
     PendulumLayout make_layout(Rectangle viewport,
@@ -73,6 +77,25 @@ public:
             stage.y + stage.height * 0.5f
         };
         layout.scale = max_radius;
+        return layout;
+    }
+
+    // Pendulum framing centred in an arbitrary stage rectangle, with no
+    // Reference Lab HUD reservations (title bar, dock, inspector, legend).
+    // make_layout() is for the full Reference Lab canvas; screens that host the
+    // pendulum inside their own panel (e.g. the Seed Workspace stage) should
+    // use this instead.
+    PendulumLayout make_stage_layout(Rectangle stage, double reach) const {
+        const double clamped_reach = std::max(0.6, reach);
+        const float pad = std::clamp(std::min(stage.width, stage.height) * 0.06f, 16.0f, 56.0f);
+        const float usable_width = std::max(60.0f, stage.width - pad * 2.0f);
+        const float usable_height = std::max(60.0f, stage.height - pad * 2.0f);
+
+        PendulumLayout layout;
+        layout.viewport = stage;
+        layout.stage_rect = stage;
+        layout.pivot = {stage.x + stage.width * 0.5f, stage.y + stage.height * 0.5f};
+        layout.scale = std::min(usable_width, usable_height) / static_cast<float>(clamped_reach * 2.0);
         return layout;
     }
 
@@ -104,6 +127,7 @@ public:
             return;
         }
 
+        glow_dirty_ = true;
         BeginTextureMode(trail_tex);
         DrawRectangle(
             static_cast<int>(layout.viewport.x),
@@ -167,9 +191,12 @@ public:
 
         // Build the GPU glow from the trail texture before the scene draw so the
         // ping-pong texture passes happen outside the canvas scissor region.
+        // The five blur passes only rerun when the trail texture changed; while
+        // the system is paused or being edited the previous glow is reused.
         const bool use_bloom = bloom_enabled_ && bloom_.ready();
-        if (use_bloom) {
+        if (use_bloom && glow_dirty_) {
             bloom_.generate(trail_tex.texture);
+            glow_dirty_ = false;
         }
 
         draw_canvas_background(layout);
@@ -218,6 +245,7 @@ public:
         if (!has_texture) {
             return;
         }
+        glow_dirty_ = true;
         BeginTextureMode(trail_tex);
         // Fade toward black so the trail texture can be composited additively
         // over the universe backdrop without washing it out.
@@ -239,8 +267,9 @@ public:
     // on top, clipped to `viewport`.
     void draw_field(const std::vector<FieldSprite>& sprites, Rectangle viewport) {
         const bool use_bloom = bloom_enabled_ && bloom_.ready();
-        if (use_bloom) {
+        if (use_bloom && glow_dirty_) {
             bloom_.generate(trail_tex.texture);
+            glow_dirty_ = false;
         }
 
         BeginScissorMode(static_cast<int>(viewport.x), static_cast<int>(viewport.y),
@@ -282,8 +311,12 @@ private:
     RenderTexture2D trail_tex{};
     GpuBloom bloom_;
     bool bloom_enabled_ = true;
+    // True when trail_tex changed since the bloom buffers were last built.
+    // Mutable because draw_scene() is const but consumes the flag.
+    mutable bool glow_dirty_ = true;
 
     void resize_texture(int w, int h) {
+        glow_dirty_ = true;
         if (has_texture) {
             UnloadRenderTexture(trail_tex);
         }
@@ -403,46 +436,48 @@ private:
                    float radius1,
                    float radius2,
                    double omega2) const {
-        draw_glow_circle(pivot, 5.0f, {223, 238, 250, 255});
-        draw_glow_circle(b1, radius1, {110, 215, 255, 255});
-
         Color bob2 = omega_to_color(omega2);
         bob2.a = 255;
-        draw_glow_circle(b2, radius2, bob2);
+        const Color pivot_color = {223, 238, 250, 255};
+        const Color bob1_color  = {110, 215, 255, 255};
+
+        // All additive halos in one blend block, then the cores: one blend
+        // switch (and batch flush) per frame instead of one per body.
+        BeginBlendMode(BLEND_ADDITIVE);
+        draw_glow_halo(pivot, 5.0f, pivot_color);
+        draw_glow_halo(b1, radius1, bob1_color);
+        draw_glow_halo(b2, radius2, bob2);
+        EndBlendMode();
+        draw_glow_core(pivot, 5.0f, pivot_color);
+        draw_glow_core(b1, radius1, bob1_color);
+        draw_glow_core(b2, radius2, bob2);
+    }
+
+    // Soft outer halo + rim; caller wraps it in BLEND_ADDITIVE.
+    static void draw_glow_halo(Vector2 centre, float radius, Color color) {
+        const Color transparent = {0, 0, 0, 0};
+        Color halo = color;
+        halo.a = 32;
+        DrawCircleGradient(static_cast<int>(centre.x), static_cast<int>(centre.y),
+                           radius * 4.2f, halo, transparent);
+        Color rim = color;
+        rim.a = 70;
+        DrawCircleGradient(static_cast<int>(centre.x), static_cast<int>(centre.y),
+                           radius * 2.0f, rim, transparent);
+    }
+
+    // Hot white-to-colour core, drawn with normal alpha blending.
+    static void draw_glow_core(Vector2 centre, float radius, Color color) {
+        Color core = color;
+        core.a = 220;
+        DrawCircleGradient(static_cast<int>(centre.x), static_cast<int>(centre.y),
+                           radius, WHITE, core);
     }
 
     void draw_glow_circle(Vector2 centre, float radius, Color color) const {
-        const Color transparent = {0, 0, 0, 0};
-
         BeginBlendMode(BLEND_ADDITIVE);
-        Color halo = color;
-        halo.a = 32;
-        DrawCircleGradient(
-            static_cast<int>(centre.x),
-            static_cast<int>(centre.y),
-            radius * 4.2f,
-            halo,
-            transparent
-        );
-        Color rim = color;
-        rim.a = 70;
-        DrawCircleGradient(
-            static_cast<int>(centre.x),
-            static_cast<int>(centre.y),
-            radius * 2.0f,
-            rim,
-            transparent
-        );
+        draw_glow_halo(centre, radius, color);
         EndBlendMode();
-
-        Color core = color;
-        core.a = 220;
-        DrawCircleGradient(
-            static_cast<int>(centre.x),
-            static_cast<int>(centre.y),
-            radius,
-            WHITE,
-            core
-        );
+        draw_glow_core(centre, radius, color);
     }
 };
