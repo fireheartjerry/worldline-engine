@@ -53,6 +53,15 @@ struct DescentState {
     // toward its target so toggling the deck glides the map (-1 = snap on first use).
     float deck_reserve = -1.0f;
 
+    // An ecosystem lays species out by log body mass (x) and trophic level (y).
+    // The x axis is fitted to the focused community's own mass range so similar-
+    // sized species spread across the stage instead of stacking in one column.
+    std::uint64_t eco_fit_seed = 0;
+    float eco_fit_aspect = 0.0f; // map-area aspect the fit was computed for
+    float eco_x_mid = 0.0f;
+    float eco_x_scale = 1.0f;
+    float map_aspect = 1.0f;     // width/height of the map area (clamped), per frame
+
     // Per-universe render caches (rebuilt only when the focused seed changes):
     // the cosmic-web census shares for the analysis deck, and the 2-nearest-
     // neighbour filament edge list (topology is camera-invariant).

@@ -77,17 +77,56 @@ void child_layout(const ChildRef& c, NodeKind parent, float t, float& nx, float&
     }
 }
 
+// Horizontal layout half-extent of the focused level. Layout space is square,
+// but an ecosystem's food web is fitted to the map's real width (see below).
+float layout_half_x(const DescentState& d) {
+    return d.focus_kind() == NodeKind::Ecosystem ? kDescentHalf * d.map_aspect : kDescentHalf;
+}
+
+// Fit the focused ecosystem's body-mass axis (x) to the community's own mass
+// range and to the map area's width, so species spread across the stage
+// instead of crowding a square in its middle (x keeps its meaning: relative
+// log body mass). Cached per focus seed and map aspect.
+void ensure_eco_fit(DescentState& d) {
+    const ProcNode& f = d.focus();
+    if (f.kind != NodeKind::Ecosystem) return;
+    if (d.eco_fit_seed == f.seed && std::abs(d.eco_fit_aspect - d.map_aspect) < 1.0e-3f) return;
+    float lo = 1.0e30f, hi = -1.0e30f;
+    for (const ChildRef& c : f.children) { lo = std::min(lo, c.x); hi = std::max(hi, c.x); }
+    const float span = hi - lo;
+    const float target = 2.0f * 0.80f * layout_half_x(d); // use 80% of the map width
+    d.eco_x_mid = f.children.empty() ? 0.0f : 0.5f * (lo + hi);
+    d.eco_x_scale = span > 1.0e-3f ? std::clamp(target / span, 1.0f, 8.0f) : 1.0f;
+    d.eco_fit_seed = f.seed;
+    d.eco_fit_aspect = d.map_aspect;
+}
+
+// Layout of one of the FOCUSED node's children, including the ecosystem fit.
+// Every consumer (hover/pick, minimap, H, ascend recentering) goes through
+// here so they always agree on where a child is.
+void focus_child_layout(DescentState& d, const ChildRef& c, float t, float& nx, float& ny) {
+    child_layout(c, d.focus_kind(), t, nx, ny);
+    if (d.focus_kind() == NodeKind::Ecosystem) {
+        ensure_eco_fit(d);
+        nx += (c.x - d.eco_x_mid) * d.eco_x_scale - c.x; // stretch the base, keep the wander
+    }
+}
+
 // Single per-frame layout pass: compute every child's screen position once into
 // the reusable buffers (read by hover/pick in update, and links/sprites in draw).
 void fill_child_positions(CosmosState& cosmos, Rectangle stage, float t) {
     DescentState& d = cosmos.descent;
+    {
+        const Rectangle L = layout_rect(d, stage);
+        d.map_aspect = std::clamp(L.width / std::max(1.0f, L.height), 1.0f, 2.6f);
+    }
     const auto& kids = d.focus().children;
     const std::size_t n = kids.size();
     d.child_px.resize(n);
     d.child_py.resize(n);
     for (std::size_t i = 0; i < n; ++i) {
         float nx, ny;
-        child_layout(kids[i], d.focus_kind(), t, nx, ny);
+        focus_child_layout(d, kids[i], t, nx, ny);
         const Vector2 p = layout_to_screen(nx, ny, layout_rect(d, stage), d.camera);
         d.child_px[i] = p.x;
         d.child_py[i] = p.y;
@@ -141,6 +180,7 @@ void descent_ensure_init(CosmosState& cosmos) {
     d.sim_step_once = false;
     d.web_census_seed = 0;
     d.web_edges_seed = 0;
+    d.eco_fit_seed = 0;
     d.camera = CosmosCamera{};
     d.transition = 1.0f;
     d.initialized = true;
@@ -161,11 +201,13 @@ void descent_push(CosmosState& cosmos, int child_index) {
     ProcNode cn = d.universe->node(child.seed, child.kind, parent); // copy (engine ref may move)
     d.path.push_back(std::move(cn));
     reset_node_interaction(d);
-    // Zoom-through: land slightly wider than the resting zoom and let the
-    // camera smoothing carry the inward motion across the boundary, so entering
-    // reads as one continuous dive instead of a hard cut.
-    d.camera.target_zoom = kZoomMin * 1.05;
-    d.camera.zoom = kZoomMin * 0.72;
+    // Zoom-through: the new level appears at about half size and the camera
+    // smoothing carries the inward motion to the framed zoom (1.0, where the
+    // layout fits the stage), so entering reads as one continuous dive. Landing
+    // framed also keeps a single scroll-out notch from bouncing straight back
+    // up a level (the ascend threshold is kZoomMin).
+    d.camera.target_zoom = 1.0;
+    d.camera.zoom = kZoomMin * 1.1;
     d.camera.target_pan = d.camera.pan = Vec2{};
     d.camera.flash = 1.0f;
     d.transition = 0.0f;
@@ -189,7 +231,7 @@ void descent_pop(CosmosState& cosmos) {
     for (const ChildRef& c : d.focus().children) {
         if (c.seed == exited) {
             float nx, ny;
-            child_layout(c, d.focus_kind(), static_cast<float>(GetTime()), nx, ny);
+            focus_child_layout(d, c, static_cast<float>(GetTime()), nx, ny);
             p = {nx, ny};
             break;
         }
@@ -324,8 +366,8 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
         }
         // Keep the camera centre inside the populated layout square so content
         // can never be panned irretrievably off-stage.
-        cam.target_pan.x = std::clamp(cam.target_pan.x, -static_cast<double>(kDescentHalf),
-                                      static_cast<double>(kDescentHalf));
+        cam.target_pan.x = std::clamp(cam.target_pan.x, -static_cast<double>(layout_half_x(d)),
+                                      static_cast<double>(layout_half_x(d)));
         cam.target_pan.y = std::clamp(cam.target_pan.y, -static_cast<double>(kDescentHalf),
                                       static_cast<double>(kDescentHalf));
 
@@ -367,8 +409,7 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
             if (pick >= 0) {
                 d.selected_child = pick;
                 float nx, ny;
-                child_layout(d.focus().children[static_cast<std::size_t>(pick)],
-                             d.focus_kind(), t, nx, ny);
+                focus_child_layout(d, d.focus().children[static_cast<std::size_t>(pick)], t, nx, ny);
                 cam.target_pan = {nx, ny};
             }
         }
@@ -1122,8 +1163,9 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         const Rectangle mm = {stage.x + stage.width - ms - 12.0f * ui,
                               stage.y + (eco_live ? 44.0f : 12.0f) * ui, ms, ms};
         draw_glass_panel(mm, {6, 14, 24, 205}, with_alpha(WL::CYAN_DIM, 110), 0.25f, 2);
+        const float hx = layout_half_x(d);
         const auto to_mm = [&](float nx, float ny) -> Vector2 {
-            return {mm.x + (nx / kDescentHalf * 0.5f + 0.5f) * mm.width,
+            return {mm.x + (nx / hx * 0.5f + 0.5f) * mm.width,
                     mm.y + (ny / kDescentHalf * 0.5f + 0.5f) * mm.height};
         };
         BeginScissorMode(static_cast<int>(mm.x), static_cast<int>(mm.y),
@@ -1131,13 +1173,13 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         for (int i = 0; i < n; ++i) {
             const ChildRef& c = f.children[static_cast<std::size_t>(i)];
             float nx, ny;
-            child_layout(c, f.kind, t, nx, ny);
+            focus_child_layout(d, c, t, nx, ny);
             const Vector2 p = to_mm(nx, ny);
             DrawCircleV(p, std::max(1.0f, 1.4f * ui),
                         with_alpha(to_raylib(c.color), i == d.selected_child ? 255 : 170));
         }
         // Current viewport in layout space, mapped into the minimap.
-        const float hw = (L.width * 0.5f) / sc / (2.0f * kDescentHalf) * mm.width;
+        const float hw = (L.width * 0.5f) / sc / (2.0f * hx) * mm.width;
         const float hh = (L.height * 0.5f) / sc / (2.0f * kDescentHalf) * mm.height;
         const Vector2 vc = to_mm(static_cast<float>(cam.pan.x), static_cast<float>(cam.pan.y));
         DrawRectangleLinesEx({vc.x - hw, vc.y - hh, hw * 2.0f, hh * 2.0f}, 1.0f,
