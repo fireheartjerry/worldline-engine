@@ -90,6 +90,13 @@ int main() {
             screen_height - gutter * 2.0f
         };
 
+        // Escape on the Reference Lab goes back to the menu like every other
+        // screen, unless it is cancelling a field edit or closing the settings
+        // modal (both handled by their own code this same frame).
+        const bool reference_escape = app.ui.screen == AppScreen::REFERENCE_LAB &&
+                                      !app.ui.settings_open &&
+                                      app.ui.active_field == FieldId::NONE &&
+                                      IsKeyPressed(KEY_ESCAPE);
         if (app.ui.screen == AppScreen::REFERENCE_LAB) {
             handle_active_field_input(app);
         }
@@ -104,7 +111,7 @@ int main() {
         UniverseAtlasSceneResult atlas_result{};
         TraceSceneResult trace_result{};
         CosmosExplorerResult cosmos_result{};
-        bool navigate_back = false;
+        bool navigate_back = reference_escape;
 
         PendulumLayout display_layout{};
         PendulumLayout seeded_layout{};
@@ -175,13 +182,10 @@ int main() {
                     const bool field_running = runtime.mode == RunMode::RUNNING && !runtime.scrubbing;
                     field.update(GetFrameTime(), field_running, runtime.law_state.q, runtime.law_state.v);
                 } else {
-                    seeded_layout = renderer.make_layout(
-                        seed_workspace_layout(canvas).stage,
-                        false,
-                        runtime.visual_simulation.rigid_connectors(),
-                        runtime.visual_simulation.bob1_pos(),
-                        runtime.visual_simulation.bob2_pos(),
-                        runtime.visual_simulation.reach());
+                    // A bare stage layout: make_layout() would also reserve the
+                    // Reference Lab's title bar and dock inside the stage.
+                    seeded_layout = renderer.make_stage_layout(seed_workspace_layout(canvas).stage,
+                                                               runtime.visual_simulation.reach());
                     if (runtime.trail_needs_upload) {
                         if (!runtime.trail.empty()) {
                             renderer.advance_trail(

@@ -510,14 +510,15 @@ void draw_inspector(AppState& app,
 
 void draw_header(Rectangle rect,
                  SeededUniverseUiState& seeded,
-                 float scale) {
+                 float scale,
+                 float title_inset) {
     draw_card(rect, {6, 14, 26, 236}, with_alpha(WL::CYAN_DIM, 110));
     draw_text("Seed Workspace",
-              {rect.x + 16.0f * scale, rect.y + 14.0f * scale},
+              {rect.x + 16.0f * scale + title_inset, rect.y + 14.0f * scale},
               24.0f * scale,
               WL::TEXT_PRIMARY);
     draw_text("Generated law, live phase-flow field, timeline, and one-step access to detailed trace.",
-              {rect.x + 16.0f * scale, rect.y + 42.0f * scale},
+              {rect.x + 16.0f * scale + title_inset, rect.y + 42.0f * scale},
               13.0f * scale,
               WL::TEXT_SECONDARY);
     draw_badge({rect.x + rect.width - 180.0f * scale, rect.y + 16.0f * scale, 76.0f * scale, 22.0f * scale},

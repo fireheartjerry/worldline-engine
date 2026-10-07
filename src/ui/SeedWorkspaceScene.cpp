@@ -31,7 +31,7 @@ SeedWorkspaceSceneResult draw_seed_workspace_scene(AppState& app,
     const Rectangle inspector = L.inspector;
     const Rectangle timeline = L.timeline;
 
-    if (draw_back_to_menu_button(viewport, scale) || (!seeded.input_active && IsKeyPressed(KEY_ESCAPE))) {
+    if (!seeded.input_active && IsKeyPressed(KEY_ESCAPE)) {
         result.back_requested = true;
     }
 
@@ -49,7 +49,13 @@ SeedWorkspaceSceneResult draw_seed_workspace_scene(AppState& app,
         if (IsKeyPressed(KEY_V)) result.toggle_view = true;
     }
 
-    draw_header(header, seeded, scale);
+    // The back key lives inside the header card (drawn after it, so it is
+    // visible; it used to sit underneath the card, hidden but still clickable).
+    const Vector2 back_size = back_button_size(scale);
+    draw_header(header, seeded, scale, back_size.x + 16.0f * scale);
+    if (draw_back_button({header.x + 16.0f * scale, header.y + 14.0f * scale, back_size.x, back_size.y}, scale)) {
+        result.back_requested = true;
+    }
     draw_inspector(app, inspector, seeded, scale, result, field_readout);
     draw_timeline(timeline, seeded, scale);
     draw_stage_overlay(stage, seeded, runtime, scale, field_readout, result);

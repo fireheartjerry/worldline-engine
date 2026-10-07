@@ -47,6 +47,7 @@ void draw_stage_overlay(Rectangle rect, const SeededUniverseUiState& seeded, con
                         float scale, const FieldReadout& fr, SeedWorkspaceSceneResult& result);
 void draw_inspector(AppState& app, Rectangle rect, SeededUniverseUiState& seeded, float scale,
                     SeedWorkspaceSceneResult& result, const FieldReadout& fr);
-void draw_header(Rectangle rect, SeededUniverseUiState& seeded, float scale);
+// `title_inset` reserves room at the header's top-left for the back key.
+void draw_header(Rectangle rect, SeededUniverseUiState& seeded, float scale, float title_inset);
 
 } // namespace seed_ws

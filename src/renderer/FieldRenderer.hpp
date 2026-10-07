@@ -172,7 +172,7 @@ public:
         draw_bloom_tap(stage, center, 1.12f, 22);
         EndBlendMode();
 
-        draw_hero(center, scale);
+        draw_hero(center, scale, stage);
         EndScissorMode();
 
         DrawRectangleRoundedLines(stage, 0.02f, 16, 1.4f, {70, 120, 150, 150});
@@ -552,9 +552,18 @@ private:
         }
     }
 
-    void draw_hero(Vector2 center, float scale) {
+    // The hero is the runtime's actual state, which can range beyond the field's
+    // framing (the view is tuned for the swarm). Its trail fades out as it nears
+    // the stage edge instead of streaking straight off it, and while the head is
+    // off stage a marker on the edge points toward it.
+    void draw_hero(Vector2 center, float scale, Rectangle stage) {
         const int n = static_cast<int>(hero_trail_.size());
         if (n < 2) return;
+        const float fade_px = 28.0f;
+        auto inside_depth = [&](Vector2 p) { // distance inside the stage edge (<0 outside)
+            return std::min(std::min(p.x - stage.x, stage.x + stage.width - p.x),
+                            std::min(p.y - stage.y, stage.y + stage.height - p.y));
+        };
         BeginBlendMode(BLEND_ADDITIVE);
         Vector2 prev{};
         bool have_prev = false;
@@ -565,20 +574,44 @@ private:
             const Vector2 s = {center.x + pt.x * scale, center.y + pt.y * scale};
             if (have_prev) {
                 const float t = k / static_cast<float>(n);
-                Color c = accent_;
-                c.a = static_cast<unsigned char>(40.0f + 150.0f * t);
-                DrawLineEx(prev, s, 1.4f + 2.0f * t, c);
+                const Vector2 mid = {(prev.x + s.x) * 0.5f, (prev.y + s.y) * 0.5f};
+                const float edge = std::clamp(inside_depth(mid) / fade_px, 0.0f, 1.0f);
+                if (edge > 0.0f) {
+                    Color c = accent_;
+                    c.a = static_cast<unsigned char>((40.0f + 150.0f * t) * edge);
+                    DrawLineEx(prev, s, 1.4f + 2.0f * t, c);
+                }
             }
             prev = s; have_prev = true; last = s;
         }
-        // bright comet head
-        const float gw = glow_.width > 0 ? static_cast<float>(glow_.width) : 32.0f;
-        const Rectangle gsrc = {0, 0, gw, gw};
-        const float hs = 13.0f;
-        DrawTexturePro(glow_, gsrc, {last.x - hs, last.y - hs, hs * 2.0f, hs * 2.0f}, {0, 0}, 0.0f,
-                       with_a(WHITE, 220));
+        if (inside_depth(last) >= 0.0f) {
+            // bright comet head
+            const float gw = glow_.width > 0 ? static_cast<float>(glow_.width) : 32.0f;
+            const Rectangle gsrc = {0, 0, gw, gw};
+            const float hs = 13.0f;
+            DrawTexturePro(glow_, gsrc, {last.x - hs, last.y - hs, hs * 2.0f, hs * 2.0f}, {0, 0}, 0.0f,
+                           with_a(WHITE, 220));
+            EndBlendMode();
+            DrawCircleV(last, 3.0f, WHITE);
+            return;
+        }
         EndBlendMode();
-        DrawCircleV(last, 3.0f, WHITE);
+        // Off stage: a chevron on the edge where the ray from the centre to the
+        // head leaves the stage (inset so it sits clearly inside the frame).
+        const float dx = last.x - center.x, dy = last.y - center.y;
+        const float len = std::sqrt(dx * dx + dy * dy);
+        if (len < 1.0e-3f) return;
+        const float ux = dx / len, uy = dy / len;
+        const float inset = 14.0f;
+        const float hx = stage.width * 0.5f - inset, hy = stage.height * 0.5f - inset;
+        const float tx = std::abs(ux) > 1.0e-6f ? hx / std::abs(ux) : 1.0e9f;
+        const float ty = std::abs(uy) > 1.0e-6f ? hy / std::abs(uy) : 1.0e9f;
+        const float tt = std::min(tx, ty);
+        const Vector2 tip = {center.x + ux * tt, center.y + uy * tt};
+        const Vector2 back = {tip.x - ux * 12.0f, tip.y - uy * 12.0f};
+        const Vector2 side = {-uy * 6.0f, ux * 6.0f};
+        DrawTriangle(tip, {back.x - side.x, back.y - side.y}, {back.x + side.x, back.y + side.y}, accent_);
+        DrawTriangle(tip, {back.x + side.x, back.y + side.y}, {back.x - side.x, back.y - side.y}, accent_);
     }
 
     // ── live metrics for the HUD ───────────────────────────────────────────────
