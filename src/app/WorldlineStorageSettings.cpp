@@ -11,7 +11,7 @@ PersistentAppSettings load_settings() {
     }
 
     std::string line;
-    while (std::getline(in, line)) {
+    while (read_line(in, line)) {
         if (starts_with(line, "last_seed=")) settings.last_seed = unescape_text(read_value(line));
         else if (starts_with(line, "last_project_id=")) settings.last_project_id = unescape_text(read_value(line));
         else if (starts_with(line, "atlas_query=")) settings.atlas_query = unescape_text(read_value(line));
@@ -20,6 +20,19 @@ PersistentAppSettings load_settings() {
         else if (starts_with(line, "window_height=")) settings.window_height = parse_int(read_value(line), settings.window_height);
         else if (starts_with(line, "gpu_bloom=")) settings.gpu_bloom = parse_int(read_value(line), settings.gpu_bloom ? 1 : 0) != 0;
         else if (starts_with(line, "recent_project=")) settings.recent_project_ids.push_back(unescape_text(read_value(line)));
+    }
+
+    // These go straight into InitWindow(). A corrupt file, or a size recorded
+    // while the window was minimized (0x0), must not size the next launch's
+    // window: fall back to the default unless the value is plausible.
+    const PersistentAppSettings defaults;
+    constexpr int kMinWindowSide = 320;
+    constexpr int kMaxWindowSide = 16384;
+    if (settings.window_width < kMinWindowSide || settings.window_width > kMaxWindowSide) {
+        settings.window_width = defaults.window_width;
+    }
+    if (settings.window_height < kMinWindowSide || settings.window_height > kMaxWindowSide) {
+        settings.window_height = defaults.window_height;
     }
     return settings;
 }
@@ -47,7 +60,7 @@ std::filesystem::path cosmos_root() {
 }
 
 bool save_cosmos_bookmark(const CosmosBookmark& bookmark) {
-    if (bookmark.id.empty()) {
+    if (!is_safe_id(bookmark.id)) {
         return false;
     }
     std::error_code ec;
@@ -72,8 +85,11 @@ std::vector<CosmosBookmark> load_cosmos_bookmarks() {
         return bookmarks;
     }
 
-    for (const auto& entry : std::filesystem::directory_iterator(cosmos_root(), ec)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".cosmos") {
+    std::filesystem::directory_iterator it(cosmos_root(), ec);
+    for (; !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        const std::filesystem::directory_entry& entry = *it;
+        std::error_code entry_ec;
+        if (!entry.is_regular_file(entry_ec) || entry.path().extension() != ".cosmos") {
             continue;
         }
         std::ifstream in(entry.path(), std::ios::binary);
@@ -82,7 +98,7 @@ std::vector<CosmosBookmark> load_cosmos_bookmarks() {
         }
         CosmosBookmark b;
         std::string line;
-        while (std::getline(in, line)) {
+        while (read_line(in, line)) {
             if (starts_with(line, "id=")) b.id = unescape_text(read_value(line));
             else if (starts_with(line, "title=")) b.title = unescape_text(read_value(line));
             else if (starts_with(line, "seed=")) b.seed = unescape_text(read_value(line));
@@ -91,6 +107,10 @@ std::vector<CosmosBookmark> load_cosmos_bookmarks() {
             else if (starts_with(line, "created_at=")) b.created_at = unescape_text(read_value(line));
         }
         if (!b.id.empty()) {
+            // As with projects, the file name is the authoritative id: it is
+            // what delete_cosmos_bookmark() removes, so a renamed/copied file
+            // whose stored id differs could otherwise never be deleted.
+            b.id = entry.path().stem().string();
             bookmarks.push_back(std::move(b));
         }
     }
@@ -106,7 +126,7 @@ std::vector<CosmosBookmark> load_cosmos_bookmarks() {
 }
 
 bool delete_cosmos_bookmark(const std::string& id) {
-    if (id.empty()) {
+    if (!is_safe_id(id)) {
         return false;
     }
     std::error_code ec;

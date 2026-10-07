@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -22,7 +23,7 @@ inline std::string escape_text(const std::string& text) {
         switch (ch) {
         case '\\': out += "\\\\"; break;
         case '\n': out += "\\n"; break;
-        case '\r': break;
+        case '\r': out += "\\r"; break; // escaped, so a raw CR never reaches the file
         case '\t': out += "\\t"; break;
         default: out.push_back(ch); break;
         }
@@ -46,6 +47,7 @@ inline std::string unescape_text(const std::string& text) {
 
         switch (ch) {
         case 'n': out.push_back('\n'); break;
+        case 'r': out.push_back('\r'); break;
         case 't': out.push_back('\t'); break;
         case '\\': out.push_back('\\'); break;
         default: out.push_back(ch); break;
@@ -109,6 +111,35 @@ inline std::string sanitize_seed_fragment(const std::string& seed) {
     return out;
 }
 
+// getline() that tolerates CRLF files (e.g. hand-edited in a Windows editor).
+// The writer escapes every '\r', so a trailing raw CR is always a line-ending
+// artifact; left in place it would silently become part of the value (a seed
+// "alpha\r" generates a different universe than "alpha").
+inline bool read_line(std::istream& in, std::string& line) {
+    if (!std::getline(in, line)) {
+        return false;
+    }
+    if (!line.empty() && line.back() == '\r') {
+        line.pop_back();
+    }
+    return true;
+}
+
+// Ids double as file names (projects/<id>.wline, cosmos/<id>.cosmos). Reject
+// anything that is not a single plain path component so an id read back from a
+// hand-edited settings file can never address a file outside the data root.
+inline bool is_safe_id(const std::string& id) {
+    if (id.empty() || id == "." || id == "..") {
+        return false;
+    }
+    for (char ch : id) {
+        if (ch == '/' || ch == '\\' || ch == ':' || static_cast<unsigned char>(ch) < 0x20) {
+            return false;
+        }
+    }
+    return true;
+}
+
 inline std::string read_value(const std::string& line) {
     const std::size_t pos = line.find('=');
     if (pos == std::string::npos) {
@@ -121,13 +152,20 @@ inline std::string read_value(const std::string& line) {
 // over from an older schema. Parse numbers defensively so a single malformed
 // field falls back to a sane default instead of throwing out of the loader.
 inline double parse_double(const std::string& text, double fallback) {
-    try {
-        std::size_t consumed = 0;
-        const double value = std::stod(text, &consumed);
-        return consumed == 0 ? fallback : value;
-    } catch (const std::exception&) {
+    // strtod rather than std::stod: stod throws out_of_range on *underflow*
+    // too, so a perfectly valid subnormal written by write_key_value() would
+    // silently reset to the fallback on reload. Overflow still falls back.
+    const char* begin = text.c_str();
+    char* end = nullptr;
+    errno = 0;
+    const double value = std::strtod(begin, &end);
+    if (end == begin) {
         return fallback;
     }
+    if (errno == ERANGE && std::isinf(value)) {
+        return fallback;
+    }
+    return value;
 }
 
 inline int parse_int(const std::string& text, int fallback) {

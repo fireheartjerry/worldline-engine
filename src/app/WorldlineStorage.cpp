@@ -37,8 +37,13 @@ std::filesystem::path settings_path() {
     return data_root() / "settings.txt";
 }
 
-void ensure_storage_dirs() {
-    std::filesystem::create_directories(projects_root());
+bool ensure_storage_dirs() {
+    // Non-throwing: an unwritable or bogus data root (e.g. WORLDLINE_DATA_DIR
+    // pointing at a file) must degrade to "nothing saved", not terminate the
+    // app from load_settings() before the window even opens.
+    std::error_code ec;
+    std::filesystem::create_directories(projects_root(), ec);
+    return !ec && std::filesystem::is_directory(projects_root(), ec);
 }
 
 std::string now_timestamp() {
@@ -63,8 +68,7 @@ std::string make_project_id(const std::string& seed) {
 }
 
 bool save_project(const UniverseProject& project) {
-    ensure_storage_dirs();
-    if (project.id.empty()) {
+    if (!is_safe_id(project.id) || !ensure_storage_dirs()) {
         return false;
     }
 
@@ -117,7 +121,9 @@ bool save_project(const UniverseProject& project) {
 }
 
 bool load_project(const std::string& id, UniverseProject& project) {
-    ensure_storage_dirs();
+    if (!is_safe_id(id) || !ensure_storage_dirs()) {
+        return false;
+    }
     const std::filesystem::path path = projects_root() / (id + ".wline");
     std::ifstream in(path, std::ios::binary);
     if (!in.is_open()) {
@@ -126,7 +132,7 @@ bool load_project(const std::string& id, UniverseProject& project) {
 
     UniverseProject loaded;
     std::string line;
-    while (std::getline(in, line)) {
+    while (read_line(in, line)) {
         if (starts_with(line, "id=")) loaded.id = unescape_text(read_value(line));
         else if (starts_with(line, "seed=")) loaded.seed = unescape_text(read_value(line));
         else if (starts_with(line, "title=")) loaded.title = unescape_text(read_value(line));
@@ -181,16 +187,33 @@ bool load_project(const std::string& id, UniverseProject& project) {
         }
     }
 
+    // A stored id is required as a "this is a project file" marker, but the
+    // file name is the authoritative id: save_project() writes to
+    // projects/<id>.wline, so a copied or renamed file that still carries the
+    // original id inside would otherwise overwrite the original project when
+    // saved (and two catalog entries would share one id).
+    if (loaded.id.empty()) {
+        return false;
+    }
+    loaded.id = id;
     loaded.workspace.project_id = loaded.id;
     project = std::move(loaded);
-    return !project.id.empty();
+    return true;
 }
 
 CatalogIndex load_catalog() {
-    ensure_storage_dirs();
     CatalogIndex catalog;
-    for (const auto& entry : std::filesystem::directory_iterator(projects_root())) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".wline") {
+    if (!ensure_storage_dirs()) {
+        return catalog;
+    }
+    // error_code overloads throughout: one unreadable entry must not abort the
+    // whole listing (or throw out of the app's startup path).
+    std::error_code ec;
+    std::filesystem::directory_iterator it(projects_root(), ec);
+    for (; !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        const std::filesystem::directory_entry& entry = *it;
+        std::error_code entry_ec;
+        if (!entry.is_regular_file(entry_ec) || entry.path().extension() != ".wline") {
             continue;
         }
 

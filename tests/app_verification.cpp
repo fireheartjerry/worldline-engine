@@ -14,6 +14,14 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#include <process.h>
+#define WL_GETPID _getpid
+#else
+#include <unistd.h>
+#define WL_GETPID getpid
+#endif
+
 namespace {
 
 void require(bool condition, const std::string& message) {
@@ -213,9 +221,11 @@ void test_cosmos_bookmark_delete() {
 
 int main() {
     // Keep the test hermetic: write into a throwaway directory rather than the
-    // user's real data location.
+    // user's real data location. The pid keeps concurrent runs (several build
+    // trees, or parallel ctest invocations) from deleting each other's files.
     const std::filesystem::path sandbox =
-        std::filesystem::temp_directory_path() / "worldline-test-data";
+        std::filesystem::temp_directory_path() /
+        ("worldline-test-data-" + std::to_string(static_cast<long long>(WL_GETPID())));
     std::filesystem::remove_all(sandbox);
     set_env("WORLDLINE_DATA_DIR", sandbox.string());
 

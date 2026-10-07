@@ -10,7 +10,7 @@ namespace Storage {
 std::filesystem::path data_root();
 std::filesystem::path projects_root();
 std::filesystem::path settings_path();
-void ensure_storage_dirs();
+bool ensure_storage_dirs(); // false if the data root cannot be created (never throws)
 
 bool save_project(const UniverseProject& project);
 bool load_project(const std::string& id, UniverseProject& project);

@@ -159,6 +159,12 @@ target_link_libraries(worldline_app_tests PRIVATE worldline_app)
 worldline_apply_warnings(worldline_app_tests)
 add_test(NAME app_verification COMMAND worldline_app_tests)
 
+add_executable(worldline_app_storage_tests tests/app_storage_verification.cpp)
+target_include_directories(worldline_app_storage_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_app_storage_tests PRIVATE worldline_app)
+worldline_apply_warnings(worldline_app_storage_tests)
+add_test(NAME app_storage_verification COMMAND worldline_app_storage_tests)
+
 add_executable(worldline_cosmos_tests tests/cosmos_verification.cpp)
 target_include_directories(worldline_cosmos_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(worldline_cosmos_tests PRIVATE worldline_cosmos)
