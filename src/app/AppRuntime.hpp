@@ -9,6 +9,27 @@ inline bool point_in_circle(Vector2 point, Vector2 centre, float radius) {
     return dx * dx + dy * dy <= radius * radius;
 }
 
+// True if `point` lies on a Reference Lab HUD element: title bar, simulation
+// dock, hint bar, force inspector / vector legend (when shown), or the shell's
+// "< Back" key (geometry of draw_back_to_menu_button(canvas,
+// canvas_overlay_scale(canvas))). Those panels are drawn over the stage, but
+// canvas editing runs before the HUD, so without this check a click on a panel
+// would also grab a bob lying underneath it.
+inline bool point_on_canvas_hud(Vector2 point,
+                                const PendulumLayout& layout,
+                                bool show_vectors,
+                                bool rigid_mode) {
+    const CanvasOverlayRects hud = make_canvas_overlay_layout(layout.viewport, show_vectors, rigid_mode);
+    const float s = hud.hud_scale;
+    const Rectangle back_key{layout.viewport.x + 20.0f * s, layout.viewport.y + 20.0f * s, 160.0f * s, 36.0f * s};
+    return CheckCollisionPointRec(point, hud.title_bar)
+        || CheckCollisionPointRec(point, hud.sim_dock)
+        || CheckCollisionPointRec(point, hud.hint_bar)
+        || CheckCollisionPointRec(point, back_key)
+        || (hud.show_inspector && CheckCollisionPointRec(point, hud.inspector))
+        || (hud.show_legend && CheckCollisionPointRec(point, hud.legend));
+}
+
 inline int record_trail_sample(AppState& app,
                                double dt,
                                bool force = false) {
@@ -143,7 +164,12 @@ inline void handle_canvas_editing(AppState& app,
     const float handle1 = renderer.bob_radius(app.draft.m1) + 12.0f;
     const float handle2 = renderer.bob_radius(app.draft.m2) + 12.0f;
 
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    // Clicks and wheel turns over a HUD panel belong to the panel, not to a
+    // bob that happens to lie underneath it.
+    const bool over_hud =
+        point_on_canvas_hud(mouse, layout, app.visuals.show_vectors, app.simulation.rigid_connectors());
+
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && !over_hud) {
         if (point_in_circle(mouse, b2, handle2)) {
             commit_active_field(app);
             app.ui.active_slider = FieldId::NONE;
@@ -179,7 +205,7 @@ inline void handle_canvas_editing(AppState& app,
         apply_draft_change(app);
     }
 
-    if (app.ui.drag_handle == 0) {
+    if (app.ui.drag_handle == 0 && !over_hud) {
         const double wheel = GetMouseWheelMove();
         if (std::abs(wheel) > 0.0) {
             if (point_in_circle(mouse, b1, handle1)) {
