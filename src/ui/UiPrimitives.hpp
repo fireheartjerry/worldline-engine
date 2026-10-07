@@ -457,6 +457,33 @@ inline float measure_wrapped_ui_text_height(const std::string& text, float max_w
     return static_cast<float>(lines) * size + static_cast<float>(lines - 1) * line_gap;
 }
 
+// First prose paragraph of a structured text: skips blank lines and ALL-CAPS
+// heading lines ("UNIVERSE CHARACTER"), and drops a leading sentence that only
+// announces the section ("This section ...").  Used for one-glance summaries.
+inline std::string ui_prose_summary(const std::string& text) {
+    std::size_t start = 0;
+    while (start < text.size()) {
+        std::size_t end = text.find('\n', start);
+        if (end == std::string::npos) end = text.size();
+        bool has_lower = false, has_alpha = false;
+        for (std::size_t i = start; i < end; ++i) {
+            const unsigned char c = static_cast<unsigned char>(text[i]);
+            if (c >= 'a' && c <= 'z') has_lower = true;
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) has_alpha = true;
+        }
+        if (has_alpha && has_lower) {
+            std::string line = text.substr(start, end - start);
+            if (line.rfind("This section", 0) == 0) {
+                const std::size_t dot = line.find(". ");
+                if (dot != std::string::npos) line = line.substr(dot + 2);
+            }
+            return line;
+        }
+        start = end + 1;
+    }
+    return std::string();
+}
+
 // Wrapped paragraph.  Kept for compatibility: a line is drawn while its top is
 // inside `bounds`, so the last line may extend past the bottom edge.  Use
 // draw_text_block_fit() for strict clipping with an ellipsis.
