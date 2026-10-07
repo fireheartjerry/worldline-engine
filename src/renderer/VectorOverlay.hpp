@@ -3,8 +3,11 @@
 // Drawing primitives live in VectorOverlayPrimitives.hpp.
 #include "VectorOverlayPrimitives.hpp"
 
+// Opt-in: a default-constructed config (`{}`) draws nothing — neither arrows
+// nor the legend card. The Reference Lab builds its config explicitly through
+// make_vector_overlay_config(), which sets `enabled` from the visuals toggle.
 struct VectorOverlayConfig {
-    bool enabled = true;
+    bool enabled = false;
     bool show_velocity = true;
     bool show_gravity = true;
     bool show_drag = true;
@@ -161,6 +164,8 @@ inline void draw_vector_overlay(const Simulation& simulation,
 inline void draw_vector_legend(const PendulumLayout& layout,
                                const VectorOverlayConfig& overlay,
                                bool rigid_mode) {
+    // The legend describes the arrows; with the overlay off there is nothing
+    // to describe, so never draw the card.
     if (!overlay.enabled) {
         return;
     }
