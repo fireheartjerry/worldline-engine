@@ -14,6 +14,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace cosmos {
 
@@ -77,6 +78,22 @@ std::string fmt_g(double v, int prec) {
     char buf[48];
     std::snprintf(buf, sizeof(buf), "%.*g", prec, v);
     return buf;
+}
+
+// Sentence-initial indefinite article + `word`: "An" before a vowel sound
+// ("An ocean world", "An elliptical galaxy", "An omnivore"). A single capital
+// letter (a star class) is read as its letter name, so A/E/F/H/I/L/M/N/O/R/S/X
+// take "an" ("An M-class star") while B/G/K take "a" ("A G-class star").
+std::string a_or_an(const std::string& word) {
+    if (word.empty()) return "A ";
+    const char c = word[0];
+    bool vowel_sound;
+    if (word.size() == 1 && c >= 'A' && c <= 'Z') {
+        vowel_sound = std::strchr("AEFHILMNORSX", c) != nullptr;
+    } else {
+        vowel_sound = std::strchr("aeiouAEIOU", c) != nullptr;
+    }
+    return (vowel_sound ? "An " : "A ") + word;
 }
 
 int planet_type(std::uint64_t seed) { return static_cast<int>(salt(seed, 13) % 6); }
@@ -220,7 +237,7 @@ void gen_galaxy(ProcNode& n, Rng& r) {
     const int morph = galaxy_morph(n.seed);
     n.subtype = morph; // 0 spiral, 1 elliptical, 2 irregular (drives the renderer)
     const int count = r.irange(28, 60);
-    n.descriptor = std::string("A ") + galaxy_morph_name(morph) + " galaxy of ~" +
+    n.descriptor = a_or_an(galaxy_morph_name(morph)) + " galaxy of ~" +
                    std::to_string(count) + " charted systems.";
     // Grounded galactic properties (CosmoStats): a Schechter-skewed stellar mass,
     // an NFW dark-matter halo, and an M-sigma central supermassive black hole.
@@ -287,7 +304,7 @@ void gen_starsystem(ProcNode& n, Rng& r) {
     n.phys_aux = lifetime;          // main-sequence lifetime (Gyr)
 
     const int count = r.irange(2, 8);
-    n.descriptor = std::string("A ") + star.name + "-class star (" +
+    n.descriptor = a_or_an(star.name) + "-class star (" +
                    fmt_g(lifetime, 2) + " Gyr lifetime) with " +
                    std::to_string(count) + " planets.";
     add_fact(n, "Star class", std::string(star.name) + " (" + fmt_g(star.temp_k, 4) + " K)");
@@ -380,7 +397,7 @@ void gen_planet(ProcNode& n, Rng& r, const ProcNode* parent) {
     add_fact(n, "Life", n.habitable ? "present" : (gate ? "absent (chance)" : "uninhabitable"));
 
     if (!n.habitable) {
-        n.descriptor = std::string("A ") + planet_type_name(type) + " world — " +
+        n.descriptor = a_or_an(planet_type_name(type)) + " world — " +
                        (in_hz ? "in the habitable zone but lifeless." : "outside the habitable zone, barren.");
         return; // barren: a dead-end (no ecosystems to descend into)
     }
@@ -520,7 +537,7 @@ void gen_creature(ProcNode& n, Rng& r, const ProcNode* parent, const ProcUnivers
             const eco::Species& s = comm.species[static_cast<std::size_t>(idx)];
             n.name = s.name; n.color = s.color;
             n.subtype = static_cast<int>(clampd(s.t.tau, 0.0, 3.0));
-            n.descriptor = std::string("A ") + eco::role_label(s.t.tau) +
+            n.descriptor = a_or_an(eco::role_label(s.t.tau)) +
                            " — trophic level " + fmt_g(s.t.tau, 2) + ".";
             add_fact(n, "Trophic role", eco::role_label(s.t.tau));
             add_fact(n, "Trophic level", fmt_g(s.t.tau, 2));

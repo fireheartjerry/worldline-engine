@@ -268,6 +268,53 @@ int main() {
                 "different galaxies have distinct languages");
     }
 
+    // --- Descriptor grammar: "An" before a vowel sound, "A" otherwise ---------
+    {
+        // Phrases the generators can emit with the wrong article if the choice
+        // is not made per word (planet types, galaxy morphologies, star-class
+        // letter names, trophic roles).
+        const char* wrong[] = {"A ocean", "A ice", "A elliptical", "A irregular", "A omnivore",
+                               "A A-class", "A F-class", "A M-class", "A O-class",
+                               "An rocky", "An gas", "An lava", "An desert", "An spiral",
+                               "An B-class", "An G-class", "An K-class", "An herbivore",
+                               "An producer", "An carnivore"};
+        int checked = 0;
+        bool saw_an = false;
+        auto check_text = [&](const std::string& d) {
+            ++checked;
+            if (d.rfind("An ", 0) == 0) saw_an = true;
+            for (const char* w : wrong) {
+                if (d.rfind(w, 0) == 0) {
+                    require(false, "descriptor uses the wrong article: \"" + d + "\"");
+                }
+            }
+        };
+        for (std::uint64_t root : {3ull, 0xABCull, 0x51DEull}) {
+            ProcUniverse uni(root);
+            const ProcNode u = uni.root();
+            for (std::size_t gi = 0; gi < u.children.size() && gi < 6; ++gi) {
+                const ProcNode g = uni.node(u.children[gi].seed, u.children[gi].kind, &u);
+                check_text(g.descriptor);
+                for (std::size_t si = 0; si < g.children.size() && si < 12; ++si) {
+                    const ProcNode s = uni.node(g.children[si].seed, g.children[si].kind, &g);
+                    check_text(s.descriptor);
+                    for (const ChildRef& pc : s.children) {
+                        const ProcNode p = uni.node(pc.seed, pc.kind, &s);
+                        check_text(p.descriptor);
+                        for (std::size_t ei = 0; ei < p.children.size() && ei < 2; ++ei) {
+                            const ProcNode e = uni.node(p.children[ei].seed, p.children[ei].kind, &p);
+                            for (std::size_t ci = 0; ci < e.children.size() && ci < 6; ++ci) {
+                                check_text(uni.node(e.children[ci].seed, e.children[ci].kind, &e).descriptor);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        require(checked > 500, "descriptor grammar sample must be large");
+        require(saw_an, "some descriptors must take \"An\" (e.g. an ocean world)");
+    }
+
     if (g_failures == 0) {
         std::cout << "cosmos_procgen_verification: all checks passed\n";
         return 0;
