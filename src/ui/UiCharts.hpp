@@ -13,6 +13,7 @@
 #include <cmath>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace charts {
@@ -25,14 +26,23 @@ struct Axes {
     bool logx = false, logy = false;
 };
 
+// Fraction of the way from `lo` to `hi`.  Axes may be deliberately reversed
+// (hi < lo, e.g. an HR diagram running hot -> cool), so only the magnitude of
+// the span is guarded against zero; its sign is kept.
+inline double axis_fraction(double v, double lo, double hi) {
+    const double span = hi - lo;
+    const double safe = std::abs(span) < 1e-12 ? (span < 0.0 ? -1e-12 : 1e-12) : span;
+    return (v - lo) / safe;
+}
+
 inline float map_x(const Axes& a, double x) {
     const double v = a.logx ? std::log10(std::max(1e-300, x)) : x;
-    const double t = (v - a.x0) / std::max(1e-12, a.x1 - a.x0);
+    const double t = axis_fraction(v, a.x0, a.x1);
     return a.plot.x + static_cast<float>(std::clamp(t, -0.05, 1.05)) * a.plot.width;
 }
 inline float map_y(const Axes& a, double y) {
     const double v = a.logy ? std::log10(std::max(1e-300, y)) : y;
-    const double t = (v - a.y0) / std::max(1e-12, a.y1 - a.y0);
+    const double t = axis_fraction(v, a.y0, a.y1);
     return a.plot.y + a.plot.height - static_cast<float>(std::clamp(t, -0.05, 1.05)) * a.plot.height;
 }
 inline Vector2 map_pt(const Axes& a, double x, double y) { return {map_x(a, x), map_y(a, y)}; }
@@ -101,8 +111,11 @@ inline void draw_area(const Axes& a, const std::function<double(double)>& f, Col
         const double tx1 = a.x0 + (a.x1 - a.x0) * static_cast<double>(i + 1) / samples;
         const double xa = a.logx ? std::pow(10.0, tx0) : tx0;
         const double xb = a.logx ? std::pow(10.0, tx1) : tx1;
-        const Vector2 p0 = map_pt(a, xa, f(xa));
-        const Vector2 p1 = map_pt(a, xb, f(xb));
+        Vector2 p0 = map_pt(a, xa, f(xa));
+        Vector2 p1 = map_pt(a, xb, f(xb));
+        // raylib culls clockwise triangles; on a reversed x axis p1 lies left
+        // of p0, which would flip the winding and drop the fill entirely.
+        if (p1.x < p0.x) std::swap(p0, p1);
         const float base = a.plot.y + a.plot.height;
         DrawTriangle({p0.x, base}, {p0.x, p0.y}, {p1.x, p1.y}, with_alpha(c, 40));
         DrawTriangle({p0.x, base}, {p1.x, p1.y}, {p1.x, base}, with_alpha(c, 40));
