@@ -81,6 +81,19 @@ inline void init_live(LiveSim& sim, eco::Community comm) {
     sim.clock.sim_time = 0.0;
 }
 
+// init_live() sizes the per-species buffers; if the community was swapped in
+// directly (sim.community = ...), resize them so the loops below can never index
+// past their end. New slots start at the species' current state.
+inline void sync_live_buffers(LiveSim& sim) {
+    const std::size_t S = sim.community.species.size();
+    if (sim.history.size() != S) sim.history.resize(S);
+    if (sim.x_prev.size() != S) {
+        const std::size_t old = sim.x_prev.size();
+        sim.x_prev.resize(S);
+        for (std::size_t i = old; i < S; ++i) sim.x_prev[i] = sim.community.species[i].x;
+    }
+}
+
 // Advance the fixed-timestep loop by a (variable) frame duration. Returns the
 // number of fixed sim-steps actually taken. FPS-independent and deterministic:
 // the same total frame time, however it is chunked, produces the same number of
@@ -91,10 +104,11 @@ inline int advance(LiveSim& sim, double frame_dt) {
 
     // Clamp the incoming frame time so a long stall can't bank unbounded work.
     if (!(frame_dt > 0.0)) frame_dt = 0.0;
-    const double max_frame = H * static_cast<double>(c.max_substeps);
+    const double max_frame = H * static_cast<double>(std::max(0, c.max_substeps));
     if (frame_dt > max_frame) frame_dt = max_frame;
     c.accumulator += frame_dt;
 
+    sync_live_buffers(sim);
     const std::size_t S = sim.community.species.size();
     int substeps = 0;
     while (c.accumulator >= H && substeps < c.max_substeps) {
@@ -135,6 +149,7 @@ inline double render_x(const LiveSim& sim, int species_index) {
         return 0.0;
     }
     const std::size_t i = static_cast<std::size_t>(species_index);
+    if (i >= sim.x_prev.size()) return sim.community.species[i].x; // not yet stepped
     return lerp(sim.x_prev[i], sim.community.species[i].x, interp_alpha(sim));
 }
 
