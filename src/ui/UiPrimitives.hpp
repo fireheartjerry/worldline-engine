@@ -290,6 +290,26 @@ inline void ui_apply_cursor_requests() {
     state.requested = MOUSE_CURSOR_DEFAULT;
 }
 
+// Scoped pointer mask for clipped (scissored) regions.  Widgets hit-test with
+// GetMousePosition() directly, so content scrolled out of view under a header
+// would still react to clicks.  While a mask is active, raylib reports the
+// mouse far off-screen; the destructor restores it.  Wheel input and the real
+// cursor are unaffected.
+class UiPointerMask {
+public:
+    explicit UiPointerMask(bool active) : active_(active) {
+        if (active_) SetMouseOffset(-1000000, -1000000);
+    }
+    ~UiPointerMask() {
+        if (active_) SetMouseOffset(0, 0);
+    }
+    UiPointerMask(const UiPointerMask&) = delete;
+    UiPointerMask& operator=(const UiPointerMask&) = delete;
+
+private:
+    bool active_;
+};
+
 inline float ui_pulse(float speed, float lo = 0.0f, float hi = 1.0f) {
     const float t = 0.5f + 0.5f * std::sin(ui_time() * speed);
     return lo + (hi - lo) * t;

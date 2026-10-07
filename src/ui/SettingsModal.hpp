@@ -65,14 +65,14 @@ inline SettingsModalResult draw_settings_modal(AppState& app, Rectangle viewport
     // ── Control panel inside modal ────────────────────────────────────────────
     result.panel = draw_control_panel(app, modal);
 
-    // ── Close button ──────────────────────────────────────────────────────────
+    // ── Close button (sits in the control panel's fixed header row) ──────────
     const float scale = panel_ui_scale(modal);
     if (draw_button(
-            {modal.x + modal.width - 96.0f * scale,
-             modal.y + 12.0f * scale,
-             78.0f * scale,
-             26.0f * scale},
-            "CLOSE",
+            {modal.x + modal.width - 132.0f * scale,
+             modal.y + 11.0f * scale,
+             114.0f * scale,
+             28.0f * scale},
+            "Close  (Esc)",
             { 22, 40, 64, 230},
             { 32, 58, 90, 255},
             WL::TEXT_SECONDARY,

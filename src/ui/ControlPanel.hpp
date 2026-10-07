@@ -14,17 +14,19 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
     const bool pending_restart       = app.mode != RunMode::STOPPED && !drafts_equal(app.draft, app.applied);
     const bool show_connector_masses = app.draft.rigid_connectors && app.draft.connector_mass_enabled;
 
-    // ── Section notes ──────────────────────────────────────────────────────────
-    const std::string nav_note        = "Jump straight to the model area you want to tune.";
-    const std::string actions_note    = "Launch, pause, stop, or wipe the trail.";
-    const std::string connector_note  = "Choose rigid rods or ideal ropes, and optionally give the rods distributed mass.";
-    const std::string geometry_note   = "Drag the stage handles or fine-tune the numbers.";
-    const std::string launch_note     = "Initial angles and spin. Enter restarts from these values.";
-    const std::string bob_drag_note   = "Per-bob viscous and air-drag coefficients.";
-    const std::string link_drag_note  = "Axial terms act along the link. Normal terms resist cross-flow.";
-    const std::string joints_note     = "Pivot and elbow damping or dry friction. Rigid mode only.";
-    const std::string visuals_note    = "Presets switch between clean presentation and analysis overlays.";
-    const std::string metrics_note    = "Live force-and-power readout for the current frame.";
+    // ── Section notes (static: no per-frame string allocations) ────────────────
+    static const std::string nav_note        = "Jump straight to the model area you want to tune.";
+    static const std::string actions_note    = "Launch, pause, stop, or wipe the trail.";
+    static const std::string connector_note  = "Choose rigid rods or ideal ropes, and optionally give the rods distributed mass.";
+    static const std::string geometry_note   = "Drag the stage handles or fine-tune the numbers.";
+    static const std::string launch_note     = "Initial angles and spin. Enter restarts from these values.";
+    static const std::string bob_drag_note   = "Per-bob viscous and air-drag coefficients.";
+    static const std::string link_drag_note  = "Axial terms act along the link. Normal terms resist cross-flow.";
+    static const std::string joints_note     = "Pivot and elbow damping or dry friction. Rigid mode only.";
+    static const std::string visuals_note    = "Presets switch between clean presentation and analysis overlays.";
+    static const std::string metrics_note    = "Live force-and-power readout for the current frame.";
+    static const std::string header_note     = "Tune the Newtonian baseline, then compare it against generated motion. "
+                                               "Shift + wheel over a slider fine-tunes it.";
 
     const float card_width           = panel.width - 36.0f * ui;
     const float nav_body_offset      = section_body_offset(nav_note,       card_width, ui);
@@ -74,18 +76,34 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
     const float joints_height    = section_card_height(app, PanelSection::JOINTS,
         joints_body_offset    + static_cast<float>(JOINT_RESISTANCE_FIELDS.size())   * 38.0f * ui
             + (!app.draft.rigid_connectors ? 32.0f * ui : 16.0f * ui), ui);
-    const float visuals_height   = section_card_height(app, PanelSection::VISUALS, 688.0f * ui, ui);
+    // Heights follow the content drawn below (presets, master toggle, four
+    // checkbox rows, scalar rows / eight tiles + note) instead of fixed guesses
+    // that left dead space at the bottom of the cards.
+    const float visuals_height   = section_card_height(app, PanelSection::VISUALS,
+        visuals_body_offset + 4.0f * ui + 38.0f * ui + 46.0f * ui + 62.0f * ui + 4.0f * 62.0f * ui
+            + static_cast<float>(VISUAL_FIELDS.size()) * 38.0f * ui + 14.0f * ui, ui);
+    const char* metrics_footnote = app.simulation.resistance_enabled()
+        ? "Resistance active - mechanical energy should decay over time.\nLink drag is distributed along rods or taut segments."
+        : "Dynamic framing scales the mechanism into view.\nRope mode: tension only acts while taut.";
     const float metrics_height   = section_card_height(app, PanelSection::METRICS,
-        metrics_body_offset + 350.0f * ui, ui);
+        metrics_body_offset + 270.0f * ui
+            + measure_wrapped_ui_text_height(metrics_footnote, card_width - 28.0f * ui, 13.5f * ui, 2.0f * ui)
+            + 18.0f * ui, ui);
 
     const float card_gap     = 12.0f * ui;
-    const float badge_height = pending_restart ? 62.0f * ui : 44.0f * ui;
 
-    // ── Content offsets ────────────────────────────────────────────────────────
-    float cy = 16.0f * ui;
-    const float title_offset    = cy; cy += 36.0f * ui;
-    cy += 26.0f * ui; // subtitle row (no widget anchors to it)
-    const float badge_offset    = cy; cy += badge_height;
+    // ── Fixed header (does not scroll) ─────────────────────────────────────────
+    // Row 1: section label, with the modal's CLOSE key on the right.
+    // Row 2: wrapped subtitle, starting below CLOSE so the two never meet.
+    // Row 3: status badges (+ "staged for restart" note).
+    const float subtitle_size = 14.0f * ui;
+    const float subtitle_y    = 46.0f * ui;
+    const float subtitle_h    = measure_wrapped_ui_text_height(header_note, card_width, subtitle_size, 3.0f * ui);
+    const float badge_y       = subtitle_y + subtitle_h + 10.0f * ui;
+    const float header_h      = badge_y + 28.0f * ui + (pending_restart ? 24.0f * ui : 0.0f) + 12.0f * ui;
+
+    // ── Content offsets (panel-relative; content starts under the header) ─────
+    float cy = header_h + 8.0f * ui;
     const float nav_offset      = cy; cy += nav_height      + card_gap;
     const float actions_offset  = cy; cy += actions_height  + card_gap;
     const float connector_offset= cy; cy += connector_height + card_gap;
@@ -108,42 +126,53 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
     auto panel_y = [&](float offset) { return panel.y + offset - app.ui.panel_scroll; };
     auto jump_to = [&](float offset) {
         prepare_toggle_interaction(app);
-        app.ui.panel_scroll = std::clamp(offset - 10.0f * ui, 0.0f, max_panel_scroll);
+        // Land the section just under the fixed header.
+        app.ui.panel_scroll = std::clamp(offset - header_h - 8.0f * ui, 0.0f, max_panel_scroll);
     };
 
     // ── Panel card (outer shell) ───────────────────────────────────────────────
     draw_card(panel, { 5, 10, 18, 224}, with_alpha(WL::GLASS_BORDER, 130));
 
-    BeginScissorMode(static_cast<int>(panel.x), static_cast<int>(panel.y),
-                     static_cast<int>(panel.width), static_cast<int>(panel.height));
-
-    // ── Panel header ───────────────────────────────────────────────────────────
+    // ── Fixed header ───────────────────────────────────────────────────────────
     draw_text("REFERENCE CONTROLS",
-              {panel.x + 18.0f * ui, panel_y(title_offset)},
-              12.0f * ui, with_alpha(WL::CYAN_CORE, 190));
-    draw_text("Tune the Newtonian baseline, then compare it against generated motion.",
-              {panel.x + 18.0f * ui, panel_y(title_offset) + 16.0f * ui},
-              15.0f * ui, WL::TEXT_TERTIARY);
+              {panel.x + 18.0f * ui, panel.y + 18.0f * ui},
+              12.5f * ui, with_alpha(WL::CYAN_CORE, 200));
+    draw_text_block(header_note,
+                    {panel.x + 18.0f * ui, panel.y + subtitle_y, card_width, subtitle_h + 2.0f},
+                    subtitle_size, WL::TEXT_SECONDARY, 3.0f * ui);
+    {
+        const float by = panel.y + badge_y;
+        const char* mode_text = app.mode == RunMode::RUNNING ? "LIVE" : app.mode == RunMode::PAUSED ? "HOLD" : "EDIT";
+        const Color mode_fill = app.mode == RunMode::RUNNING ? with_alpha(WL::PLASMA_DIM, 210)
+                              : app.mode == RunMode::PAUSED  ? with_alpha(WL::XENON_DIM, 210)
+                                                             : Color{16, 44, 76, 210};
+        const Color mode_ink  = app.mode == RunMode::RUNNING ? WL::PLASMA_GREEN
+                              : app.mode == RunMode::PAUSED  ? WL::XENON_CORE
+                                                             : WL::ACCENT_GRAVITY;
+        const float mode_w = measure_ui_text(mode_text, 13.0f * ui).x + 34.0f * ui;
+        draw_badge({panel.x + 18.0f * ui, by, mode_w, 28.0f * ui}, mode_text, mode_fill, mode_ink, ui);
+        const char* connector_text = connector_mode_label(app.draft);
+        const float connector_w = measure_ui_text(connector_text, 13.0f * ui).x + 30.0f * ui;
+        draw_badge({panel.x + 18.0f * ui + mode_w + 10.0f * ui, by, connector_w, 28.0f * ui},
+                   connector_text, {20, 40, 60, 200}, WL::TEXT_SECONDARY, ui);
+        if (pending_restart) {
+            draw_text_fit("Settings staged for the next restart.", {panel.x + 18.0f * ui, by + 34.0f * ui},
+                          card_width, 13.5f * ui, 11.0f * ui, with_alpha(WL::XENON_CORE, 210));
+        }
+        DrawLineEx({panel.x + 14.0f * ui, panel.y + header_h - 1.0f}, {panel.x + panel.width - 14.0f * ui, panel.y + header_h - 1.0f},
+                   1.0f, with_alpha(WL::GLASS_BORDER, 110));
+    }
 
-    // ── Status badges ──────────────────────────────────────────────────────────
-    const float by = panel_y(badge_offset);
-    if (app.mode == RunMode::RUNNING) {
-        draw_badge({panel.x + 18.0f * ui, by, 90.0f * ui, 28.0f * ui},
-                   "LIVE", with_alpha(WL::PLASMA_DIM, 210), WL::PLASMA_GREEN, ui);
-    } else if (app.mode == RunMode::PAUSED) {
-        draw_badge({panel.x + 18.0f * ui, by, 100.0f * ui, 28.0f * ui},
-                   "HOLD", with_alpha(WL::XENON_DIM, 210), WL::XENON_CORE, ui);
-    } else {
-        draw_badge({panel.x + 18.0f * ui, by, 110.0f * ui, 28.0f * ui},
-                   "EDIT", { 16, 44, 76, 210}, WL::ACCENT_GRAVITY, ui);
-    }
-    draw_badge({panel.x + 142.0f * ui, by, 155.0f * ui, 28.0f * ui},
-               connector_mode_label(app.draft), {20, 40, 60, 200}, WL::TEXT_SECONDARY, ui);
-    if (pending_restart) {
-        draw_text("Settings staged for the next restart.",
-                  {panel.x + 18.0f * ui, by + 34.0f * ui},
-                  13.5f * ui, with_alpha(WL::XENON_CORE, 200));
-    }
+    // Scrolling content lives strictly below the header.  Widgets scrolled
+    // under the header are clipped visually; the pointer mask keeps them from
+    // reacting to clicks there too.
+    const Rectangle content_view = {panel.x, panel.y + header_h, panel.width, panel.height - header_h};
+    // (An in-progress slider drag keeps the real pointer so it can leave the
+    // region without snapping.)
+    const UiPointerMask pointer_mask(app.ui.active_slider == FieldId::NONE
+                                     && !CheckCollisionPointRec(GetMousePosition(), content_view));
+    BeginScissorMode(static_cast<int>(content_view.x), static_cast<int>(content_view.y),
+                     static_cast<int>(content_view.width), static_cast<int>(content_view.height));
 
     // ── Quick Jump nav card ─────────────────────────────────────────────────────
     Rectangle nav_card = {panel.x + 18.0f * ui, panel_y(nav_offset), card_width, nav_height};
@@ -167,31 +196,33 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
     Rectangle actions = {panel.x + 18.0f * ui, panel_y(actions_offset), card_width, actions_height};
     if (draw_section_shell(app, result, PanelSection::CONTROLS, actions,
                            "Controls", actions_note, WL::PLASMA_GREEN, ui)) {
+        // Same 16 px inset as every other section, clear of the accent stripe.
+        const float inset = 16.0f * ui;
         const float bg  = 9.0f  * ui;
-        const float bw2 = (actions.width - bg * 3.0f) * 0.5f;
+        const float bw2 = (actions.width - inset * 2.0f - bg) * 0.5f;
         const float ar1 = actions.y + actions_body_offset;
         const float ar2 = ar1 + action_button_height + action_row_gap;
 
-        if (draw_button({actions.x + bg, ar1, bw2, action_button_height},
+        if (draw_button({actions.x + inset, ar1, bw2, action_button_height},
                         app.mode == RunMode::STOPPED ? "Launch" : "Restart",
                         with_alpha(WL::PLASMA_DIM, 228), with_alpha(WL::PLASMA_GREEN, 80),
                         WL::PLASMA_GREEN, true, ui))
             result.command = PanelCommand::LAUNCH;
 
-        if (draw_button({actions.x + bg * 2.0f + bw2, ar1, bw2, action_button_height},
+        if (draw_button({actions.x + inset + bg + bw2, ar1, bw2, action_button_height},
                         app.mode == RunMode::PAUSED ? "Resume" : "Pause",
                         {24, 46, 72, 230}, {34, 62, 96, 255}, WL::TEXT_PRIMARY,
                         app.mode != RunMode::STOPPED, ui))
             result.command = PanelCommand::TOGGLE_PAUSE;
 
-        if (draw_button({actions.x + bg, ar2, bw2, action_button_height},
+        if (draw_button({actions.x + inset, ar2, bw2, action_button_height},
                         "Stop",
                         with_alpha(WL::XENON_DIM, 224), with_alpha(WL::XENON_CORE, 80),
                         WL::XENON_CORE,
                         app.mode != RunMode::STOPPED, ui))
             result.command = PanelCommand::STOP;
 
-        if (draw_button({actions.x + bg * 2.0f + bw2, ar2, bw2, action_button_height},
+        if (draw_button({actions.x + inset + bg + bw2, ar2, bw2, action_button_height},
                         "Clear Trail",
                         {12, 28, 48, 226}, {20, 44, 72, 255}, WL::TEXT_SECONDARY,
                         true, ui))
@@ -409,10 +440,7 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
         draw_metric({metrics.x + 14.0f * ui, my + 198.0f*ui, mw, 60.0f * ui}, "Power",        format_number(diss_power, 3) + " W", ui);
         draw_metric({metrics.x + 14.0f * ui + mw + 12.0f*ui, my + 198.0f*ui, mw, 60.0f * ui}, "Resistance",  res_enabled ? "Active" : "Off",     ui);
 
-        const char* mnote = res_enabled
-            ? "Resistance active - mechanical energy should decay over time.\nLink drag is distributed along rods or taut segments."
-            : "Dynamic framing scales the mechanism into view.\nRope mode: tension only acts while taut.";
-        draw_text_block(mnote,
+        draw_text_block(metrics_footnote,
                         {metrics.x + 14.0f * ui, my + 270.0f * ui,
                          metrics.width - 28.0f * ui, 60.0f * ui},
                         13.5f * ui, WL::TEXT_TERTIARY, 2.0f * ui);
@@ -422,11 +450,11 @@ inline ControlPanelResult draw_control_panel(AppState& app, Rectangle panel) {
 
     // ── Scrollbar ──────────────────────────────────────────────────────────────
     if (max_panel_scroll > 0.0f) {
-        const float track_h = panel.height - 8.0f;
-        const float thumb_h = std::max(20.0f, track_h * (panel.height / (panel.height + max_panel_scroll)));
-        const float thumb_frac = max_panel_scroll > 0.0f ? app.ui.panel_scroll / max_panel_scroll : 0.0f;
-        const float thumb_y = panel.y + 4.0f + (track_h - thumb_h) * thumb_frac;
-        DrawRectangleRounded({panel.x + panel.width - 6.0f, panel.y + 4.0f, 3.5f, track_h},
+        const float track_h = content_view.height - 8.0f;
+        const float thumb_h = std::max(20.0f, track_h * (content_view.height / (content_view.height + max_panel_scroll)));
+        const float thumb_frac = app.ui.panel_scroll / max_panel_scroll;
+        const float thumb_y = content_view.y + 4.0f + (track_h - thumb_h) * thumb_frac;
+        DrawRectangleRounded({panel.x + panel.width - 6.0f, content_view.y + 4.0f, 3.5f, track_h},
                              1.0f, 4, {18, 42, 60, 90});
         DrawRectangleRounded({panel.x + panel.width - 6.0f, thumb_y, 3.5f, thumb_h},
                              1.0f, 4, with_alpha(WL::CYAN_DIM, 170));

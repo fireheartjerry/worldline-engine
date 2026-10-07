@@ -54,6 +54,7 @@ inline bool draw_section_toggle(Rectangle rect, bool collapsed, Color accent, fl
     const Vector2 mouse = GetMousePosition();
     const bool hot     = CheckCollisionPointRec(mouse, rect);
     const bool pressed = hot && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+    if (hot) ui_request_cursor(MOUSE_CURSOR_POINTING_HAND);
 
     DrawRectangleRounded(rect, 0.38f, 8,
                          hot ? with_alpha(accent, 70) : Color{12, 24, 36, 210});
@@ -61,7 +62,7 @@ inline bool draw_section_toggle(Rectangle rect, bool collapsed, Color accent, fl
                               hot ? with_alpha(accent, 160) : with_alpha(accent, 70));
 
     const char* lbl = collapsed ? "SHOW" : "HIDE";
-    const float ts = 11.0f * scale;
+    const float ts = 12.0f * scale;
     const Vector2 tsz = measure_ui_text(lbl, ts);
     draw_text(lbl,
               {rect.x + (rect.width - tsz.x) * 0.5f,
@@ -85,17 +86,16 @@ inline bool draw_section_shell(AppState& app,
     // Card with accent stripe
     draw_card_accented(rect, WL::GLASS_1, with_alpha(accent, 65), accent);
 
-    // Title
-    draw_text(title,
-              {rect.x + 18.0f * scale, rect.y + 11.0f * scale},
-              20.0f * scale,
-              WL::TEXT_PRIMARY);
+    // Title + toggle; centred vertically when the card is collapsed to a bar.
+    const float title_size = 20.0f * scale;
+    const float toggle_h   = 24.0f * scale;
+    const float title_y  = collapsed ? rect.y + (rect.height - title_size) * 0.5f : rect.y + 11.0f * scale;
+    const float toggle_y = collapsed ? rect.y + (rect.height - toggle_h) * 0.5f : rect.y + 9.0f * scale;
+    draw_text_fit(title, {rect.x + 18.0f * scale, title_y}, rect.width - 110.0f * scale,
+                  title_size, 15.0f * scale, WL::TEXT_PRIMARY);
 
-    // Toggle button
-    if (draw_section_toggle(
-            {rect.x + rect.width - 72.0f * scale, rect.y + 9.0f * scale,
-             56.0f * scale, 22.0f * scale},
-            collapsed, accent, scale)) {
+    if (draw_section_toggle({rect.x + rect.width - 76.0f * scale, toggle_y, 60.0f * scale, toggle_h},
+                            collapsed, accent, scale)) {
         result.toggled_section = section;
     }
 
@@ -135,8 +135,14 @@ inline bool draw_slider(AppState& app, FieldId id, Rectangle rect,
         }
     }
 
+    // Wheel fine-tuning needs Shift or Ctrl held: a plain wheel always scrolls
+    // the panel, so sweeping the cursor over sliders while scrolling can no
+    // longer silently change parameters.
     const double wheel = GetMouseWheelMove();
-    if (hot && std::abs(wheel) > 0.0 && app.ui.active_slider == FieldId::NONE) {
+    const bool modifier = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)
+                       || IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    if (hot) ui_request_cursor(MOUSE_CURSOR_POINTING_HAND);
+    if (hot && modifier && std::abs(wheel) > 0.0 && app.ui.active_slider == FieldId::NONE) {
         value = std::clamp(value + wheel * (max - min) / 160.0, min, max);
         changed = true;
         app.ui.slider_wheel_used = true;
@@ -170,6 +176,7 @@ inline bool draw_number_box(AppState& app, Rectangle rect, FieldId id,
     const Vector2 mouse = GetMousePosition();
     const bool hot    = CheckCollisionPointRec(mouse, rect);
     const bool active = app.ui.active_field == id;
+    if (hot) ui_request_cursor(MOUSE_CURSOR_IBEAM);
 
     if (hot && IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && !active) {
         commit_active_field(app);
@@ -201,6 +208,7 @@ inline bool draw_visual_number_box(AppState& app, Rectangle rect,
     const Vector2 mouse = GetMousePosition();
     const bool hot    = CheckCollisionPointRec(mouse, rect);
     const bool active = app.ui.active_field == spec.id;
+    if (hot) ui_request_cursor(MOUSE_CURSOR_IBEAM);
 
     if (hot && IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && !active) {
         commit_active_field(app);
