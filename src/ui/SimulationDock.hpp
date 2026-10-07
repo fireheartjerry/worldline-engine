@@ -57,7 +57,7 @@ inline SimulationDockResult draw_simulation_dock(const AppState& app,
     draw_corner_brackets(dock, with_alpha(WL::CYAN_CORE, 160), 11.0f * s, 1.5f, 4.0f * s);
 
     // ── Header ────────────────────────────────────────────────────────────────
-    draw_text("REFERENCE SYSTEM",
+    draw_text("SIMULATION",
               {ix, dock.y + 11.0f * s},
               12.0f * s,
               with_alpha(WL::CYAN_CORE, 180));
@@ -68,17 +68,21 @@ inline SimulationDockResult draw_simulation_dock(const AppState& app,
                     with_alpha(WL::PLASMA_GREEN, static_cast<unsigned char>(140 + 110 * p)));
     }
 
-    // ── Status badges ─────────────────────────────────────────────────────────
-    draw_badge({ix, dock.y + 30.0f * s, 74.0f * s, 22.0f * s},
-               run_mode_label(app.mode),
+    // ── Status badges (sized to their labels) ─────────────────────────────────
+    const char* mode_text = run_mode_label(app.mode);
+    const float mode_w = measure_ui_text(mode_text, 12.0f * s).x + 26.0f * s;
+    draw_badge({ix, dock.y + 30.0f * s, mode_w, 22.0f * s},
+               mode_text,
                run_mode_badge_fill(app.mode),
                run_mode_badge_text(app.mode),
-               s);
-    draw_badge({dock.x + dock.width - 126.0f * s, dock.y + 30.0f * s, 112.0f * s, 22.0f * s},
-               connector_mode_label(app.mode == RunMode::STOPPED ? app.draft : app.applied),
+               s * 0.9f);
+    const char* connector_text = connector_mode_label(app.mode == RunMode::STOPPED ? app.draft : app.applied);
+    const float connector_w = std::min(iw - mode_w - gap, measure_ui_text(connector_text, 12.0f * s).x + 26.0f * s);
+    draw_badge({ix + iw - connector_w, dock.y + 30.0f * s, connector_w, 22.0f * s},
+               connector_text,
                { 22, 42, 62, 200},
                WL::TEXT_SECONDARY,
-               s);
+               s * 0.9f);
 
     // ── Separator ─────────────────────────────────────────────────────────────
     DrawLineEx({ix, dock.y + 60.0f * s}, {ix + iw, dock.y + 60.0f * s},
@@ -149,6 +153,11 @@ inline SimulationDockResult draw_simulation_dock(const AppState& app,
                     true, s)) {
         result.open_settings = true;
     }
+
+    // ── Keyboard affordances ──────────────────────────────────────────────────
+    draw_text_fit("Enter launch  Space pause  R stop  C clear",
+                  {ix, row3 + 32.0f * s + 9.0f * s}, iw, 11.5f * s, 9.5f * s,
+                  with_alpha(WL::TEXT_TERTIARY, 170));
 
     return result;
 }

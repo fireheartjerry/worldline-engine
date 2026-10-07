@@ -201,23 +201,16 @@ inline void draw_vector_legend(const PendulumLayout& layout,
 
     DrawRectangleRounded(card, 0.12f, 14, {7, 16, 24, 198});
     DrawRectangleRoundedLines(card, 0.12f, 14, 1.3f, {60, 95, 112, 116});
-    DrawTextEx(ui_font(),
-               "Vector Field",
-               {card.x + 14.0f * scale, card.y + 10.0f * scale},
-               18.0f * scale,
-               ui_text_spacing(18.0f * scale),
-               {235, 242, 247, 255});
+    draw_text("Vector Field", {card.x + 14.0f * scale, card.y + 10.0f * scale}, 18.0f * scale, {235, 242, 247, 255});
 
+    // Labels are fitted to the card so nothing spills past the window edge.
+    const float label_x = card.x + 44.0f * scale;
+    const float label_w = card.x + card.width - 12.0f * scale - label_x;
     float y = card.y + 34.0f * scale;
     for (int i = 0; i < count; ++i) {
         const Vector2 from = {card.x + 16.0f * scale, y + 8.0f * scale};
         vector_overlay_detail::draw_arrow(from, {18.0f * scale, 0.0f}, items[i].color, 2.0f * scale);
-        DrawTextEx(ui_font(),
-                   items[i].label,
-                   {card.x + 44.0f * scale, y - 1.0f * scale},
-                   15.0f * scale,
-                   ui_text_spacing(15.0f * scale),
-                   {192, 214, 225, 230});
+        draw_text_fit(items[i].label, {label_x, y}, label_w, 15.0f * scale, 11.5f * scale, {192, 214, 225, 230});
         y += 22.0f * scale;
     }
 
@@ -230,11 +223,7 @@ inline void draw_vector_legend(const PendulumLayout& layout,
                    {card.x + 25.0f * scale, y + 17.0f * scale},
                    1.2f,
                    {255, 212, 132, 138});
-        DrawTextEx(ui_font(),
-                   "Basis glyph = axial / normal",
-                   {card.x + 44.0f * scale, y - 1.0f * scale},
-                   15.0f * scale,
-                   ui_text_spacing(15.0f * scale),
-                   {192, 214, 225, 210});
+        draw_text_fit("Link basis: axial / normal", {label_x, y}, label_w, 15.0f * scale, 11.0f * scale,
+                      {192, 214, 225, 210});
     }
 }
