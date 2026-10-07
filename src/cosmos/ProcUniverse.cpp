@@ -521,7 +521,7 @@ void gen_creature(ProcNode& n, Rng& r, const ProcNode* parent, const ProcUnivers
             n.name = s.name; n.color = s.color;
             n.subtype = static_cast<int>(clampd(s.t.tau, 0.0, 3.0));
             n.descriptor = std::string("A ") + eco::role_label(s.t.tau) +
-                           " — trophic level " + fmt_g(s.t.tau + (s.t.tau >= 0.5 ? 0.0 : 0.0), 2) + ".";
+                           " — trophic level " + fmt_g(s.t.tau, 2) + ".";
             add_fact(n, "Trophic role", eco::role_label(s.t.tau));
             add_fact(n, "Trophic level", fmt_g(s.t.tau, 2));
             add_fact(n, "Body mass", s.mass_kg < 1.0 ? fmt_g(s.mass_kg * 1000.0, 2) + " g"

@@ -16,7 +16,6 @@ namespace {
 constexpr double kPi = 3.1415926535897932385;
 constexpr double kTwoPi = 6.2831853071795864769;
 constexpr double kPhi = 1.6180339887498948482;
-constexpr double kPhiInv = 0.6180339887498948482;
 constexpr double kSqrt2 = 1.4142135623730950488;
 constexpr double kSqrt3 = 1.7320508075688772935;
 constexpr double kSqrt5 = 2.2360679774997896964;
