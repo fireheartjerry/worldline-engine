@@ -5,23 +5,37 @@ Worldline is a desktop simulation instrument built with C++ and raylib.
 Its flagship experience is a deterministic seeded universe pipeline:
 
 - enter a seed string
-- generate a `MetaSpec`, `LawSpec`, and `ObservableExtractor`
-- run the generated law live every frame
-- render the resulting motion through the existing pendulum renderer as a visual backend
+- generate a `MetaSpec` (a vault of tensors: metric, potential, coupling,
+  gyroscopic, warp …) and assemble a `LawSpec` equation of motion
+- advect a swarm of ~13,000 test masses through the **actual generated law**
+  every frame
+- paint their world-lines as a luminous **phase-flow field** — vortices, spiral
+  arms, shear sheets, saddles and accretion rings emerge directly from the seed
 
-The Newtonian pendulum is still included, but it is framed as a reference system rather than the main product surface.
+Each universe receives a signature colour palette derived from its own
+invariants, plus a live exotic-index / flux / swirl / order readout for
+at-a-glance comparison. The same live state can also be viewed through the
+reference pendulum renderer (press `V` in the Seed Workspace).
+
+The Newtonian double pendulum is still included as a polished **reference
+system** for comparison.
 
 ## Product Structure
 
 - `Guided First Universe`
   A seed-first onboarding flow that explains the deterministic pipeline and opens directly into the live workspace.
 - `Seed Workspace`
-  The main live simulation view with a large stage, contextual inspector, timeline, notes, saving, and direct access to trace tools.
+  The main live simulation view: the phase-flow field stage (or the pendulum
+  view), a contextual inspector with the universe's signature metrics, a
+  timeline with scrubbing and pinned frames, notes, saving, and direct access to
+  trace tools.
 - `Universe Atlas`
   A local gallery of saved universes with search, compare, derived descriptors, and visual fingerprints.
 - `Cosmos Explorer`
-  A multi-scale universe navigator with a scale ladder, object catalog, live
-  N-body sandbox, and per-tier physics derived from the law genome.
+  A zoomable map of a procedurally generated universe — descend from the cosmic
+  web into a galaxy, a star system, a planet, a living ecosystem and a single
+  creature — with a per-level scientific instrument deck, plus a nine-tier
+  N-body sandbox with per-tier physics derived from the law genome.
 - `Trace`
   A cleaner inspection surface for generated law summaries, preview paths, and tensor views.
 - `Reference System`
@@ -79,9 +93,15 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
 
 ## Features
 
-- deterministic seeded universe generation
-- live `LawSpec` stepping with observable extraction every frame
-- pendulum-quality rendering and trail playback for seeded universes
+- deterministic seeded universe generation with genuinely varied laws
+  (anisotropic metrics, saddle/well/ridge potentials, gyroscopic vortices, warp)
+- live `FieldRenderer`: multithreaded RK2 advection of ~13k test masses through
+  the generated law, additive glow trails with multi-tap bloom, a static
+  streamline atlas, a per-universe starfield and a highlighted "hero" world-line
+- per-universe signature colour palette + live exotic-index / flux / swirl /
+  order metrics
+- live `LawSpec` stepping with observable extraction every frame, viewable
+  through the reference pendulum renderer as an alternative stage
 - saved local universe projects with title, notes, markers, and thumbnails
 - atlas search over seed text, descriptors, and derived metrics
 - timeline recording with scrubbing and pinned frames
@@ -225,14 +245,35 @@ Seed Workspace, Universe Atlas, Cosmos Explorer, Trace, and Reference System.
   star lifetime (so most worlds are barren), and living worlds grow Whittaker
   biomes with NPP-scaled, trophically-balanced food webs
 - universe classification with granular signature metrics and an observer fleet
-- 3D navigation boilerplate for future free-flight exploration
+- 3D navigation boilerplate for future free-flight exploration (orbit-camera
+  math, tested; not yet wired to a renderer)
 - cohesive glassmorphic, sci-fi HUD interface shared across every screen
+- offline tools: `worldline_field_preview` renders universe "postcards" to BMP
+  without a GPU; `worldline_metaspec_stats` profiles the generated-law corpus
+
+## Keyboard Reference
+
+Escape goes back (or closes the open modal) on every screen.
+
+**Seed Workspace** — `Space` pause/resume · `R` restart · `C` clear trail ·
+`V` switch the stage between the phase-flow field and the pendulum view ·
+`Tab` open Trace · `Enter` (in the seed box) generate
+
+**Cosmos Explorer — map** — scroll to zoom (zooming past a level enters the
+object under the cursor; zooming out ascends) · drag or `W A S D` to pan ·
+`+`/`-` zoom · `C` recenter · arrows move the selection · `Tab`/`Shift+Tab`
+cycle · `1`–`9` select · `Enter` enter · `H` jump to the next notable object
+(a habitable world, an ecosystem's keystone species) · `[` `]` previous/next
+sibling · `Backspace` up · `Home` root · `G` show/hide the analysis deck
+
+**Cosmos Explorer — live ecosystem** — `Space` pause · `,` `.` slower/faster ·
+`O` single step · `X` perturb the selected species and watch it recover
 
 ## Build
 
-Worldline builds on Windows, Linux, and macOS. Windows is the reference
-platform and the one CI validates; Linux and macOS builds are supported on a
-best-effort basis.
+Worldline builds on Windows, Linux, and macOS. CI builds and runs the full test
+suite on Windows (MSVC, the reference platform) and Linux (GCC); macOS is
+supported on a best-effort basis.
 
 ### Linux dependencies
 
@@ -299,17 +340,35 @@ cmake --build build --target package
 
 ## Project Layout
 
-- `src/app` app shell, scene state, runtime ownership, persistence, copy
-- `src/physics` law stepping and observable extraction
-- `src/seed` deterministic generation pipeline
-- `src/ui` desktop UI scenes and drawing primitives
-- `tests` verification programs
+- `src/seed` deterministic generation pipeline (seed text → bytes → lanes → `MetaSpec`)
+- `src/physics` the generated equation of motion (`LawSpec`), observable
+  extraction, and the reference pendulum physics
+- `src/cosmos` the law genome, the procedural universe (`ProcUniverse`), the
+  N-body sandbox, ecology, and the header-only quantum / nuclear / atomic suites
+- `src/app` app state, the seeded-universe runtime, persistence, and UI copy
+- `src/renderer` `FieldRenderer` (live flow-field backend) + `FlowOperator`
+  (shared float force operator) + the reference pendulum renderer and bloom
+- `src/ui` desktop UI scenes and the shared glass drawing primitives
+- `src/math` double-precision vectors and integrators
+- `tools` offline field preview and corpus diagnostics
+- `tests` verification programs (one executable per suite)
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit
+together, the determinism contract, and how to verify UI changes headlessly.
+
+## Field preview tool
+
+Render universe "postcards" to a BMP without opening a window:
+
+```bash
+./build/worldline_field_preview --size 460 andromeda vortex-sigma saddle-rift helix-nine
+```
 
 ## Tooling
 
 - `.clang-format` for consistent formatting
 - `CMakePresets.json` for repeatable local configure flows
-- GitHub Actions CI for Windows build-and-test validation
+- GitHub Actions CI: build + full test suite on Windows (MSVC) and Linux (GCC)
 
 ## License
 

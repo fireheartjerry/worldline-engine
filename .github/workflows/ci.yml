@@ -10,12 +10,9 @@ on:
   pull_request:
 
 jobs:
-  # NOTE: CI is intentionally scoped to Windows for now. The seeded universe /
-  # N-body sandbox is not yet bit-reproducible across compilers (the seed->genome
-  # pipeline still calls platform libm), so the tier verification diverges on
-  # Linux/GCC and macOS/Clang. Until that determinism work lands, Windows is the
-  # single reference platform; the Linux and macOS jobs were removed deliberately,
-  # not lost.
+  # Windows (MSVC) is the reference platform: it also produces the release
+  # package. Linux (GCC) builds and runs the same full suite so regressions on a
+  # second compiler/STL are caught too. macOS is not CI-gated.
   windows:
     name: Windows (MSVC)
     runs-on: windows-latest
@@ -37,3 +34,25 @@ jobs:
 
       - name: Package Release
         run: cmake --build build --config Release --target package
+
+  linux:
+    name: Linux (GCC)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install raylib build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev libxinerama-dev libxkbcommon-dev
+
+      - name: Configure
+        run: cmake --preset default
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
