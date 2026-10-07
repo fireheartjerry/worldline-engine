@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -66,14 +68,100 @@ inline float ui_text_spacing(float size) {
     return std::max(0.0f, size * 0.018f);
 }
 
-inline void init_ui_font() {
-    UiFontState& state = ui_font_state();
-    if (state.loaded) return;
+// ── Glyph coverage ─────────────────────────────────────────────────────────────
+// LoadFontEx(path, size, nullptr, 0) only rasterises ASCII 32-126, and raylib
+// draws any other codepoint as '?'.  The UI (and the Cosmos descriptors) use
+// typographic and scientific glyphs, so load an explicit set.  ASCII stays at
+// the front, in order: raylib's GetGlyphIndex() is a linear scan, so ASCII
+// lookups cost exactly what they did with the 95-glyph default.
+inline std::vector<int> ui_font_codepoints() {
+    std::vector<int> cps;
+    cps.reserve(320);
+    for (int c = 32; c <= 126; ++c) cps.push_back(c);    // ASCII
+    for (int c = 160; c <= 255; ++c) cps.push_back(c);   // Latin-1: ° ± ² ³ µ · ¹ × ÷ ...
+    for (int c = 0x391; c <= 0x3A9; ++c) {                // Greek capitals Α-Ω
+        if (c != 0x3A2) cps.push_back(c);                 // (U+03A2 is unassigned)
+    }
+    for (int c = 0x3B1; c <= 0x3C9; ++c) cps.push_back(c); // Greek small α-ω
+    static constexpr int kExtra[] = {
+        0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D,   // – — ‘ ’ “ ”
+        0x2022, 0x2026, 0x2032, 0x2033,                   // • … ′ ″
+        0x2070, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078,   // ⁰ ⁴ ⁵ ⁶ ⁷ ⁸
+        0x2079, 0x207A, 0x207B,                           // ⁹ ⁺ ⁻
+        0x2080, 0x2081, 0x2082, 0x2083, 0x2084,           // ₀ ₁ ₂ ₃ ₄
+        0x2190, 0x2191, 0x2192, 0x2193, 0x2194,           // ← ↑ → ↓ ↔
+        0x2126, 0x210F, 0x212B,                           // Ω ℏ Å
+        0x2202, 0x2206, 0x2207, 0x2211, 0x2212, 0x221A,   // ∂ ∆ ∇ ∑ − √
+        0x221D, 0x221E, 0x222B, 0x2248, 0x2260, 0x2261,   // ∝ ∞ ∫ ≈ ≠ ≡
+        0x2264, 0x2265, 0x2299,                           // ≤ ≥ ⊙
+        0x25B2, 0x25B6, 0x25BC, 0x25C0, 0x25CF, 0x25CB,   // ▲ ▶ ▼ ◀ ● ○
+        0x25C6, 0x2609,                                   // ◆ ☉
+    };
+    cps.insert(cps.end(), std::begin(kExtra), std::end(kExtra));
+    return cps;
+}
 
-    // Prefer a narrow, technical-looking font on every platform — fits the
-    // alien-terminal aesthetic.  Linux/macOS paths included so the instrument
-    // renders with proper type outside Windows, not the raylib bitmap fallback.
-    const std::array<const char*, 14> candidates{{
+// A codepoint the font lacks rasterises as the font's ".notdef" box.  Rather
+// than draw tofu, re-point such glyphs at an ASCII look-alike (or '?').  The
+// alias copies only metrics + atlas rect; each glyph keeps its own image so
+// UnloadFont() frees everything exactly once.
+inline int ui_font_ascii_fallback(int codepoint) {
+    switch (codepoint) {
+    case 0x2013: case 0x2014: case 0x2212: case 0x207B: return '-';
+    case 0x2018: case 0x2019: case 0x2032:               return '\'';
+    case 0x201C: case 0x201D: case 0x2033:               return '"';
+    case 0x2022: case 0x25CF: case 0x2299: case 0x2609:  return '*';
+    case 0x00B7:                                         return '.';
+    case 0x2192: case 0x25B6:                            return '>';
+    case 0x2190: case 0x25C0:                            return '<';
+    case 0x2191: case 0x25B2:                            return '^';
+    case 0x2193: case 0x25BC:                            return 'v';
+    case 0x2248:                                         return '~';
+    case 0x207A:                                         return '+';
+    default:                                             return '?';
+    }
+}
+
+inline bool ui_glyph_images_equal(const Image& a, const Image& b) {
+    if (a.width != b.width || a.height != b.height || a.format != b.format) return false;
+    if (a.data == nullptr || b.data == nullptr) return a.data == b.data;
+    // After LoadFontEx the glyph images are crops of the (gray-alpha) atlas.
+    const int bytes = GetPixelDataSize(a.width, a.height, a.format);
+    return std::equal(static_cast<const unsigned char*>(a.data),
+                      static_cast<const unsigned char*>(a.data) + bytes,
+                      static_cast<const unsigned char*>(b.data));
+}
+
+inline void alias_missing_ui_glyphs(Font& font, int probe_codepoint) {
+    int probe = -1;
+    for (int i = 0; i < font.glyphCount; ++i) {
+        if (font.glyphs[i].value == probe_codepoint) { probe = i; break; }
+    }
+    if (probe < 0) return;
+    const GlyphInfo& notdef = font.glyphs[probe];
+    for (int i = 0; i < font.glyphCount; ++i) {
+        GlyphInfo& g = font.glyphs[i];
+        // Skip ASCII and the blank Latin-1 glyphs (NBSP, soft hyphen), which can
+        // legitimately match an empty .notdef in a monospace font.
+        if (i == probe || g.value < 128 || g.value == 0xA0 || g.value == 0xAD) continue;
+        if (g.advanceX != notdef.advanceX || !ui_glyph_images_equal(g.image, notdef.image)) continue;
+        const int fallback = ui_font_ascii_fallback(g.value);
+        const int j = fallback - 32;                      // ASCII is stored first, in order
+        if (j < 0 || j >= font.glyphCount || font.glyphs[j].value != fallback) continue;
+        g.offsetX  = font.glyphs[j].offsetX;
+        g.offsetY  = font.glyphs[j].offsetY;
+        g.advanceX = font.glyphs[j].advanceX;
+        font.recs[i] = font.recs[j];
+    }
+}
+
+// Font discovery list.  Prefer a narrow, technical-looking font on every
+// platform — fits the alien-terminal aesthetic.  Linux/macOS paths included so
+// the instrument renders with proper type outside Windows, not the raylib
+// bitmap fallback.  (raylib cannot load .ttc collections; those entries fail
+// cleanly and the next candidate is tried.)
+inline const std::array<const char*, 14>& ui_font_candidates() {
+    static const std::array<const char*, 14> candidates{{
         // Windows
         "C:/Windows/Fonts/consola.ttf",   // Consolas — monospace, sharp, techy
         "C:/Windows/Fonts/cour.ttf",      // Courier New fallback
@@ -92,13 +180,45 @@ inline void init_ui_font() {
         "/Library/Fonts/Arial.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
     }};
+    return candidates;
+}
 
-    for (const char* path : candidates) {
-        if (!FileExists(path)) continue;
-        Font font = LoadFontEx(path, 96, nullptr, 0);
-        if (font.texture.id != 0) {
-            SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
-            state.regular = font;
+// Load one UI font file with the full codepoint set.  Returns false (leaving
+// `out` untouched) when the file is missing or cannot be parsed.
+inline bool load_ui_font_file(const char* path, Font& out) {
+    if (path == nullptr || !FileExists(path)) return false;
+
+    // U+FFFF is a guaranteed non-character: every font renders it as .notdef,
+    // which lets alias_missing_ui_glyphs() recognise unsupported glyphs.
+    constexpr int kProbeCodepoint = 0xFFFF;
+    std::vector<int> codepoints = ui_font_codepoints();
+    codepoints.push_back(kProbeCodepoint);
+
+    Font font = LoadFontEx(path, 96, codepoints.data(), static_cast<int>(codepoints.size()));
+    // On failure LoadFontEx hands back the built-in default font; treat that as
+    // "try the next candidate" rather than as success.
+    const bool is_default = font.texture.id == GetFontDefault().texture.id;
+    if (font.texture.id == 0 || is_default || font.glyphCount <= 0) {
+        if (font.texture.id != 0 && !is_default) UnloadFont(font);
+        return false;
+    }
+
+    alias_missing_ui_glyphs(font, kProbeCodepoint);
+    // The atlas is rasterised at 96 px but most labels draw at 10-20 px.  Plain
+    // bilinear sampling at 5-9x minification aliases badly (thin strokes drop
+    // out, "E" reads as "L"); mipmaps + trilinear keep small text smooth.
+    GenTextureMipmaps(&font.texture);
+    SetTextureFilter(font.texture, font.texture.mipmaps > 1 ? TEXTURE_FILTER_TRILINEAR
+                                                            : TEXTURE_FILTER_BILINEAR);
+    out = font;
+    return true;
+}
+
+inline void init_ui_font() {
+    UiFontState& state = ui_font_state();
+    if (state.loaded) return;
+    for (const char* path : ui_font_candidates()) {
+        if (load_ui_font_file(path, state.regular)) {
             state.loaded = true;
             return;
         }
