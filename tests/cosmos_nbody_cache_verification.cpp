@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -117,7 +118,13 @@ void ref_step(NBodySystem& sys, double dt, int substeps) {
 
 // --- Helpers -------------------------------------------------------------
 
-bool bits_equal(double a, double b) { return std::memcmp(&a, &b, sizeof(double)) == 0; }
+bool bits_equal(double a, double b) {
+    std::uint64_t ua = 0;
+    std::uint64_t ub = 0;
+    std::memcpy(&ua, &a, sizeof(double));
+    std::memcpy(&ub, &b, sizeof(double));
+    return ua == ub;
+}
 
 bool same_state(const NBodySystem& a, const NBodySystem& b) {
     if (a.bodies.size() != b.bodies.size()) return false;

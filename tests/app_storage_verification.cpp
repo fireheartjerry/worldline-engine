@@ -6,6 +6,7 @@
 #include "app/WorldlineStorage.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -46,7 +47,11 @@ void set_env(const char* name, const std::string& value) {
 }
 
 bool same_bits(double a, double b) {
-    return std::memcmp(&a, &b, sizeof(double)) == 0;
+    std::uint64_t ua = 0;
+    std::uint64_t ub = 0;
+    std::memcpy(&ua, &a, sizeof(double));
+    std::memcpy(&ub, &b, sizeof(double));
+    return ua == ub;
 }
 
 std::string read_file(const fs::path& path) {

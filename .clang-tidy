@@ -1,0 +1,26 @@
+# Bug-finding checks for the engine (src/cosmos, src/seed, src/physics,
+# src/app). Run with the compile database from any configured build, e.g.
+#   clang-tidy -p build src/cosmos/NBodySystem.cpp
+# Style checks are deliberately off; the disabled bugprone/performance checks
+# below produced only noise on this codebase (intentional integer math in the
+# hash/RNG code, short parameter lists of same-typed doubles, enum widths).
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  performance-*,
+  -performance-enum-size,
+  clang-analyzer-*,
+  -clang-analyzer-optin.performance.Padding,
+  cert-err34-c,
+  cert-oop54-cpp,
+  cert-msc50-cpp,
+  misc-definitions-in-headers,
+  misc-misplaced-const,
+  misc-redundant-expression,
+  misc-throw-by-value-catch-by-reference,
+  misc-unused-using-decls
+HeaderFilterRegex: '.*/src/(cosmos|seed|physics|app|math)/.*'
+WarningsAsErrors: ''

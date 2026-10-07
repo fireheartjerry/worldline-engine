@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
+#include <type_traits>
 
 namespace cosmos {
 
@@ -122,8 +124,22 @@ ForceParams make_force_params(const ScaleTier& tier, const LawGenome& genome) {
 
 namespace {
 
+// Bit-pattern identity (unlike ==, distinguishes -0.0 from 0.0 and matches a
+// NaN with itself), which is what "same force inputs" has to mean here.
 bool same_bits(double a, double b) {
-    return std::memcmp(&a, &b, sizeof(double)) == 0;
+    std::uint64_t ua = 0;
+    std::uint64_t ub = 0;
+    std::memcpy(&ua, &a, sizeof(double));
+    std::memcpy(&ub, &b, sizeof(double));
+    return ua == ub;
+}
+
+// Compared bytewise so that any field added later is covered automatically.
+// A false mismatch (e.g. -0.0 vs 0.0) only costs a recompute; a match means
+// every field is bit-identical.
+static_assert(std::is_trivially_copyable<ForceParams>::value, "ForceParams is compared with memcmp");
+bool same_params(const ForceParams& a, const ForceParams& b) {
+    return std::memcmp(&a, &b, sizeof(ForceParams)) == 0; // NOLINT(bugprone-suspicious-memory-comparison)
 }
 
 } // namespace
@@ -254,8 +270,7 @@ std::vector<Vec2> NBodySystem::accelerations() const {
 // comparison, so any edit (even -0.0 vs 0.0) invalidates.
 bool NBodySystem::cache_inputs_match(bool& positions_match) const {
     positions_match = false;
-    if (!cache_valid_ || cache_key_.size() != bodies.size() ||
-        std::memcmp(&cache_params_, &params, sizeof(ForceParams)) != 0) {
+    if (!cache_valid_ || cache_key_.size() != bodies.size() || !same_params(cache_params_, params)) {
         return false;
     }
     bool positions_same = true;
