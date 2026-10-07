@@ -171,9 +171,6 @@ DescriptorFeatureSet analyze_descriptor_features(const MetaSpec& ms) {
     f.transfer_immediacy = clamp01(0.60 * std::min(1.0, f.coupling_strength / 1.0) + 0.40 * f.mode_mixing);
     f.launch_intensity = clamp01(0.55 * std::min(1.0, f.launch_speed / 1.20) + 0.45 * std::min(1.0, f.q_radius / 0.64));
     f.directional_bias = clamp01(0.55 * f.g.anisotropy + 0.45 * std::min(1.0, std::abs(std::log(std::max(1.0e-6, f.launch_bias))) / 1.2));
-    const double structural_clarity = clamp01(0.45 * (1.0 - f.mode_mixing)
-        + 0.35 * std::min(1.0, f.symmetry_strength / 0.75)
-        + 0.20 * (1.0 - f.coupling_imbalance));
     f.temporal_bias = clamp01(std::min(1.0, f.tau_strength / 0.30));
     f.unusualness = clamp01(0.32 * f.steering_strength + 0.28 * f.mode_mixing + 0.20 * f.misalignment
         + 0.20 * std::min(1.0, f.tau_strength / 0.30));
