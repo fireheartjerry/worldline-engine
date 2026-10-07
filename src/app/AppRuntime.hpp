@@ -80,14 +80,44 @@ inline void draw_editor_handles(const AppState& app,
     DrawCircleLinesV(b1, r1, {80, 220, 255, 190});
     DrawCircleLinesV(b2, r2, {255, 186, 98, 205});
 
-    draw_text("Drag to place the upper bob",
-              {b1.x + 18.0f * hud_scale, b1.y - 30.0f * hud_scale},
-              15.0f * hud_scale,
-              {160, 227, 245, 220});
-    draw_text("Drag to place the lower bob",
-              {b2.x + 18.0f * hud_scale, b2.y + 12.0f * hud_scale},
-              15.0f * hud_scale,
-              {255, 214, 168, 220});
+    // Hint labels prefer the right of their bob, then its left, then centred
+    // just beyond their own bob's ring (above the upper bob, below the lower
+    // one): the first spot that stays on the stage (not under the vector
+    // legend / off the canvas) and does not cover the other bob wins. The
+    // result is clamped inside the stage so no HUD panel covers it.
+    const Rectangle stage = layout.stage_rect;
+    const float label_size = 15.0f * hud_scale;
+    const float label_gap = 18.0f * hud_scale;
+    const auto draw_handle_label = [&](const char* text, Vector2 bob, float ring, float dy, bool above,
+                                       Vector2 other, float other_ring, Color color) {
+        const float width = measure_ui_text(text, label_size).x;
+        const float right_edge = stage.x + stage.width;
+        const auto covers_other = [&](float lx, float ly) {
+            const Vector2 nearest{std::clamp(other.x, lx, lx + width), std::clamp(other.y, ly, ly + label_size)};
+            return point_in_circle(nearest, other, other_ring);
+        };
+        const auto fits = [&](float lx, float ly) {
+            return lx >= stage.x && lx + width <= right_edge && !covers_other(lx, ly);
+        };
+        float x = bob.x + label_gap;
+        float y = bob.y + dy;
+        if (!fits(x, y)) {
+            const float left_x = bob.x - label_gap - width;
+            if (fits(left_x, y)) {
+                x = left_x;
+            } else {
+                x = bob.x - width * 0.5f;
+                y = above ? bob.y - ring - 4.0f * hud_scale - label_size : bob.y + ring + 4.0f * hud_scale;
+            }
+        }
+        x = std::clamp(x, stage.x, std::max(stage.x, right_edge - width));
+        y = std::clamp(y, stage.y, std::max(stage.y, stage.y + stage.height - label_size));
+        draw_text(text, {x, y}, label_size, color);
+    };
+    draw_handle_label("Drag to place the upper bob", b1, r1, -30.0f * hud_scale, true, b2, r2,
+                      {160, 227, 245, 220});
+    draw_handle_label("Drag to place the lower bob", b2, r2, 12.0f * hud_scale, false, b1, r1,
+                      {255, 214, 168, 220});
 
     if (app.draft.rigid_connectors && app.draft.connector_mass_enabled) {
         const Vector2 c1 = renderer.to_screen(app.simulation.connector1_com(), layout);
