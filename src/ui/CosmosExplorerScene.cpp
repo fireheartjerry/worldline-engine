@@ -32,6 +32,7 @@ void CosmosState::set_scale(Scale next) {
     scale = next;
     selected_object = 0;
     compare_object = -1;
+    library_scroll = 0.0f;
 }
 
 void CosmosState::clear_sim() {
@@ -141,6 +142,10 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
                         WL::CYAN_CORE, true, scale)) {
             cosmos.descent_mode = false;
         }
+        if (draw_button(control_rect(3), cosmos.descent.analysis_open ? "Hide deck (G)" : "Show deck (G)",
+                        {18, 34, 44, 228}, {26, 52, 66, 255}, WL::TEXT_PRIMARY, true, scale)) {
+            cosmos.descent.analysis_open = !cosmos.descent.analysis_open;
+        }
         if (draw_button(control_rect(4), "Saved...", {22, 34, 58, 230}, {32, 50, 86, 255},
                         WL::TEXT_PRIMARY, true, scale)) {
             cosmos.browser_open = !cosmos.browser_open;
@@ -191,14 +196,11 @@ CosmosExplorerResult draw_cosmos_explorer_scene(AppState& app,
 
     if (cosmos.descent_mode) {
         // Procedural descent: zoom into a specific galaxy -> system -> planet -> life.
-        if (nav_interactive) {
-            update_descent(cosmos, stage, GetFrameTime(), true);
-            draw_descent_stage(cosmos, renderer, stage, scale);
-            draw_descent_hud(cosmos, stage, scale);
-        } else {
-            draw_universe_backdrop(cosmos.palette, cosmos.genome.signature, stage,
-                                   static_cast<float>(GetTime()));
-        }
+        // While a modal is open the map keeps rendering (and the live sim keeps
+        // running) underneath, but ignores input; the modal is drawn on top.
+        update_descent(cosmos, stage, GetFrameTime(), nav_interactive, scale);
+        draw_descent_stage(cosmos, renderer, stage, scale);
+        draw_descent_hud(cosmos, stage, scale);
     } else {
         // Legacy 9-tier N-body archetype sandbox.
         draw_universe_backdrop(cosmos.palette, cosmos.genome.signature, stage,

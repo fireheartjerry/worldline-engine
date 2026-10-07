@@ -49,6 +49,9 @@ struct DescentState {
     // aim at is always what you get.
     Vector2 zoom_anchor{-1.0f, -1.0f};
     int descend_hint = -1;
+    // Pixels at the bottom of the stage reserved for the analysis deck, animated
+    // toward its target so toggling the deck glides the map (-1 = snap on first use).
+    float deck_reserve = -1.0f;
 
     // Per-universe render caches (rebuilt only when the focused seed changes):
     // the cosmic-web census shares for the analysis deck, and the 2-nearest-
@@ -107,6 +110,8 @@ struct CosmosState {
     cosmos::Scale scale = cosmos::Scale::STELLAR;
     int selected_object = 0;  // index within the current tier's object list
     int compare_object = -1;  // second object for comparison, -1 = none
+    float library_scroll = 0.0f;     // object-library card scroll offset (px)
+    float library_max_scroll = 0.0f; // measured on the previous frame
 
     cosmos::NBodySystem system;
     bool has_sim = false;

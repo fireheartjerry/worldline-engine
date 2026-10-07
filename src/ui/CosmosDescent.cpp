@@ -34,6 +34,24 @@ float base_scale(Rectangle stage) {
     return std::min(stage.width, stage.height) * 0.5f / kDescentHalf;
 }
 
+// Geometry of the analysis deck (a strip along the bottom of the stage). The
+// HUD legend and on-stage keys sit above it when it is open, never under it.
+constexpr float kDeckGap = 8.0f;
+float deck_height(Rectangle stage, float ui) {
+    return std::min(176.0f * ui, stage.height * 0.34f);
+}
+// The map lays out in the part of the stage the deck leaves visible. The
+// reserved strip animates (see update_descent), so toggling the deck glides the
+// map rather than jumping it.
+Rectangle layout_rect(const DescentState& d, Rectangle stage) {
+    const float reserve = std::clamp(d.deck_reserve, 0.0f, stage.height * 0.6f);
+    return {stage.x, stage.y, stage.width, stage.height - reserve};
+}
+float stage_content_bottom(const DescentState& d, Rectangle stage, float /*ui*/) {
+    const Rectangle L = layout_rect(d, stage);
+    return L.y + L.height;
+}
+
 Vector2 layout_to_screen(float nx, float ny, Rectangle stage, const CosmosCamera& cam) {
     const float cx = stage.x + stage.width * 0.5f;
     const float cy = stage.y + stage.height * 0.5f;
@@ -70,7 +88,7 @@ void fill_child_positions(CosmosState& cosmos, Rectangle stage, float t) {
     for (std::size_t i = 0; i < n; ++i) {
         float nx, ny;
         child_layout(kids[i], d.focus_kind(), t, nx, ny);
-        const Vector2 p = layout_to_screen(nx, ny, stage, d.camera);
+        const Vector2 p = layout_to_screen(nx, ny, layout_rect(d, stage), d.camera);
         d.child_px[i] = p.x;
         d.child_py[i] = p.y;
     }
@@ -244,16 +262,22 @@ int select_directional(const DescentState& d, int from, float dirx, float diry) 
 }
 } // namespace
 
-void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interactive) {
+void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interactive, float ui) {
     descent_ensure_init(cosmos);
     DescentState& d = cosmos.descent;
     CosmosCamera& cam = d.camera;
-    const float sc0 = base_scale(stage);
-    const Vector2 ctr = {stage.x + stage.width * 0.5f, stage.y + stage.height * 0.5f};
+    // Reserve the deck's strip of the stage (animated; snaps on the first frame).
+    const float reserve_target = d.analysis_open ? deck_height(stage, ui) + kDeckGap * ui * 2.0f : 0.0f;
+    if (d.deck_reserve < 0.0f) d.deck_reserve = reserve_target;
+    d.deck_reserve += (reserve_target - d.deck_reserve) * static_cast<float>(1.0 - std::exp(-10.0 * std::max(0.0001f, dt)));
+    const Rectangle L = layout_rect(d, stage);
+    const float sc0 = base_scale(L);
+    const Vector2 ctr = {L.x + L.width * 0.5f, L.y + L.height * 0.5f};
     const float t = static_cast<float>(GetTime());
 
     if (interactive) {
-        const bool over = CheckCollisionPointRec(GetMousePosition(), stage);
+        // Input over the map area only (the deck strip below is not the map).
+        const bool over = CheckCollisionPointRec(GetMousePosition(), L);
         // Layout pass up front so the keyboard selection cursor and the mouse hover
         // share one set of child screen positions.
         fill_child_positions(cosmos, stage, t);
@@ -412,7 +436,7 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
     d.descend_hint = -1;
     if (!node_is_leaf(d.focus_kind()) && !d.focus().children.empty()) {
         const bool anchored = d.zoom_anchor.x >= 0.0f &&
-                              CheckCollisionPointRec(d.zoom_anchor, stage);
+                              CheckCollisionPointRec(d.zoom_anchor, L);
         const Vector2 aim = anchored ? d.zoom_anchor : ctr;
         int best = -1;
         float best_d = 1.0e30f;
@@ -421,7 +445,7 @@ void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interac
             const float dist = std::hypot(p.x - aim.x, p.y - aim.y);
             if (dist < best_d) { best_d = dist; best = i; }
         }
-        const float reach = 0.32f * std::min(stage.width, stage.height);
+        const float reach = 0.32f * std::min(L.width, L.height);
         if (best >= 0 && best_d < reach) d.descend_hint = best;
     }
 
@@ -495,8 +519,8 @@ void draw_descent_analysis(CosmosState& cosmos, Rectangle stage, float ui) {
     const ProcNode& f = d.focus();
     const float t = static_cast<float>(GetTime());
 
-    const float gap = 8.0f * ui;
-    const float ch = std::min(176.0f * ui, stage.height * 0.34f);
+    const float gap = kDeckGap * ui;
+    const float ch = deck_height(stage, ui);
     const float cw = (stage.width - 4.0f * gap) / 3.0f;
     const float cy = stage.y + stage.height - ch - gap;
     const Rectangle C0 = {stage.x + gap, cy, cw, ch};
@@ -788,14 +812,15 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     // the pre-smoothing positions in update; here we recompute once for rendering.
     fill_child_positions(cosmos, stage, t);
 
+    const Rectangle L = layout_rect(d, stage); // map area above the deck
     const float zoomf = static_cast<float>(cam.zoom);
-    const float sc = base_scale(stage) * zoomf;
+    const float sc = base_scale(L) * zoomf;
     const bool eco_live = (f.kind == NodeKind::Ecosystem && d.live_seed == f.seed);
 
     // Orbit rings + central body (drawn under the additive field pass).
     BeginScissorMode(static_cast<int>(stage.x), static_cast<int>(stage.y),
                      static_cast<int>(stage.width), static_cast<int>(stage.height));
-    const Vector2 center = layout_to_screen(0.0f, 0.0f, stage, cam);
+    const Vector2 center = layout_to_screen(0.0f, 0.0f, L, cam);
     if (f.kind == NodeKind::Universe) {
         // Cosmic web: link each galaxy to its two nearest neighbours, tracing the
         // filaments that thread the clusters (galaxies were placed on the density
@@ -848,7 +873,7 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
                     const float rr = 0.06f * std::exp(0.42f * th);
                     if (rr > 0.95f) break;
                     const float ang = base + th;
-                    const Vector2 p = layout_to_screen(std::cos(ang) * rr, std::sin(ang) * rr, stage, cam);
+                    const Vector2 p = layout_to_screen(std::cos(ang) * rr, std::sin(ang) * rr, L, cam);
                     if (th > 0.0f) DrawLineEx(prev, p, 1.5f, with_alpha(to_raylib(f.color), 60));
                     prev = p;
                 }
@@ -910,7 +935,7 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         const int latv[5] = {60, 30, 0, -30, -60};
         for (int i = 0; i < 5; ++i) {
             const float ny = -static_cast<float>(latv[i]) / 110.0f;
-            const Vector2 p = layout_to_screen(0.0f, ny, stage, cam);
+            const Vector2 p = layout_to_screen(0.0f, ny, L, cam);
             const float halfw = 0.46f * sc * std::cos(static_cast<float>(latv[i]) * 3.14159f / 180.0f);
             const unsigned char a = (latv[i] == 0) ? 90 : 36;
             DrawLineEx({center.x - halfw, p.y}, {center.x + halfw, p.y}, 1.0f,
@@ -922,8 +947,8 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
         const char* tl[5] = {"APEX", "CARNIVORES", "OMNIVORES", "HERBIVORES", "PRODUCERS"};
         const float ny5[5] = {-0.82f, -0.41f, 0.0f, 0.41f, 0.82f};
         for (int i = 0; i < 5; ++i) {
-            const Vector2 p = layout_to_screen(0.0f, ny5[i], stage, cam);
-            if (p.y < stage.y + 4.0f || p.y > stage.y + stage.height - 4.0f) continue;
+            const Vector2 p = layout_to_screen(0.0f, ny5[i], L, cam);
+            if (p.y < L.y + 4.0f || p.y > L.y + L.height - 4.0f) continue;
             DrawLineEx({stage.x + 6.0f, p.y}, {stage.x + stage.width - 6.0f, p.y}, 1.0f,
                        with_alpha(WL::GLASS_BORDER, 30));
             draw_text(tl[i], {stage.x + 10.0f, p.y - 12.0f * ui}, 9.0f * ui,
@@ -1031,7 +1056,7 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     if (eco_live) {
         const char* rl[3] = {"producer", "herbivore", "carnivore"};
         const Color rc[3] = {WL::PLASMA_GREEN, WL::CYAN_CORE, {255, 92, 92, 255}};
-        const float ly = stage.y + stage.height - 22.0f * ui;
+        const float ly = stage_content_bottom(d, stage, ui) - 56.0f * ui;
         for (int i = 0; i < 3; ++i) {
             const float lx = stage.x + 14.0f * ui + i * 92.0f * ui;
             DrawCircleV({lx, ly + 5.0f * ui}, 4.0f * ui, with_alpha(rc[i], 220));
@@ -1112,8 +1137,8 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
                         with_alpha(to_raylib(c.color), i == d.selected_child ? 255 : 170));
         }
         // Current viewport in layout space, mapped into the minimap.
-        const float hw = (stage.width * 0.5f) / sc / (2.0f * kDescentHalf) * mm.width;
-        const float hh = (stage.height * 0.5f) / sc / (2.0f * kDescentHalf) * mm.height;
+        const float hw = (L.width * 0.5f) / sc / (2.0f * kDescentHalf) * mm.width;
+        const float hh = (L.height * 0.5f) / sc / (2.0f * kDescentHalf) * mm.height;
         const Vector2 vc = to_mm(static_cast<float>(cam.pan.x), static_cast<float>(cam.pan.y));
         DrawRectangleLinesEx({vc.x - hw, vc.y - hh, hw * 2.0f, hh * 2.0f}, 1.0f,
                              with_alpha(WL::XENON_CORE, 170));
@@ -1124,7 +1149,7 @@ void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage
     const bool sim_live = (d.live_seed != 0) &&
                           (f.kind == NodeKind::Ecosystem || f.kind == NodeKind::Creature);
     if (sim_live) {
-        const Rectangle tc = {stage.x + 12.0f * ui, stage.y + 12.0f * ui, 188.0f * ui, 22.0f * ui};
+        const Rectangle tc = {stage.x + 12.0f * ui, stage.y + 60.0f * ui, 188.0f * ui, 22.0f * ui};
         draw_glass_panel(tc, {8, 18, 30, 215}, with_alpha(WL::CYAN_DIM, 120), 0.35f, 2);
         // Play/pause glyph.
         const Vector2 g = {tc.x + 12.0f * ui, tc.y + tc.height * 0.5f};
@@ -1404,7 +1429,7 @@ void draw_descent_hud(const CosmosState& cosmos, Rectangle stage, float ui) {
 
     // Two-line control legend: camera on top, the full keyboard shell below —
     // every shortcut the shell honours is discoverable on screen.
-    const float hy = stage.y + stage.height - 32.0f * ui;
+    const float hy = stage_content_bottom(d, stage, ui) - 32.0f * ui;
     draw_text(node_is_leaf(f.kind)
                   ? "scroll out: ascend   |   drag / WASD: pan   |   C: recenter"
                   : "scroll in / click / Enter: enter   |   scroll out: ascend   |   drag / WASD: pan   |   C: recenter",

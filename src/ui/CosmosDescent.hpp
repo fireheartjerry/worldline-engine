@@ -18,7 +18,8 @@ void descent_ensure_init(CosmosState& cosmos);
 
 // Per-frame input + camera + descend/ascend. `interactive` is false while a
 // modal is open so navigation never fights an overlay.
-void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interactive);
+void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interactive,
+                    float ui_scale = 1.0f);
 
 // Rendering.
 void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage, float ui_scale);

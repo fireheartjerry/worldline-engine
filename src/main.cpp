@@ -22,6 +22,9 @@ int main() {
     PersistentAppSettings boot_settings = Storage::load_settings();
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
     InitWindow(boot_settings.window_width, boot_settings.window_height, Copy::kAppTitle);
+    // Escape is the app's "back / close" key on every screen and modal; raylib's
+    // default would also quit the whole app on that same press.
+    SetExitKey(KEY_NULL);
     SetTargetFPS(60);
     init_ui_font();
 
@@ -386,6 +389,7 @@ int main() {
     Storage::save_settings(app.settings);
 
     renderer.release();
+    field.release(); // GPU resources must go before CloseWindow destroys the context
     shutdown_ui_font();
     CloseWindow();
     return 0;

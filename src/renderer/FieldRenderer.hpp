@@ -49,9 +49,13 @@ public:
 
     FieldRenderer(int w, int h) { resize(w, h); build_glow_sprite(); }
 
-    ~FieldRenderer() {
-        if (has_tex_) UnloadRenderTexture(accum_);
-        if (glow_.id != 0) UnloadTexture(glow_);
+    ~FieldRenderer() { release(); }
+
+    // Free GPU resources. Must run while the GL context is alive (i.e. before
+    // CloseWindow); idempotent, so the destructor is a no-op afterwards.
+    void release() {
+        if (has_tex_) { UnloadRenderTexture(accum_); has_tex_ = false; }
+        if (glow_.id != 0) { UnloadTexture(glow_); glow_ = Texture2D{}; }
     }
 
     FieldRenderer(const FieldRenderer&) = delete;

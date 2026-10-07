@@ -223,15 +223,45 @@ void draw_inspector(const CosmosState &cosmos, Rectangle rect, float scale) {
     draw_text(std::string(tier.name) + " - " + tier.subtitle,
               {rect.x + 14.0f * scale, rect.y + 30.0f * scale}, 12.0f * scale, WL::TEXT_TERTIARY);
 
+    // Everything below the title scrolls: the object list plus a tier-dependent
+    // inspector is taller than the card at ordinary window sizes. The guard
+    // closes the clip, measures the content and draws the scrollbar on every
+    // exit path.
+    CosmosState &mut = const_cast<CosmosState &>(cosmos);
+    const Rectangle content = {rect.x + 2.0f * scale, rect.y + 46.0f * scale,
+                               rect.width - 4.0f * scale, rect.height - 50.0f * scale};
+    const bool over_content = CheckCollisionPointRec(GetMousePosition(), content);
+    if (over_content) {
+        mut.library_scroll -= GetMouseWheelMove() * 48.0f * scale;
+    }
+    mut.library_scroll = std::clamp(mut.library_scroll, 0.0f, mut.library_max_scroll);
+    const float scroll = mut.library_scroll;
+    float content_end = content.y;
+    struct ScrollRegion {
+        CosmosState &c;
+        Rectangle area;
+        const float &end_y;
+        ~ScrollRegion() {
+            EndScissorMode();
+            const float total = end_y + c.library_scroll - area.y;
+            c.library_max_scroll = std::max(0.0f, total - area.height);
+            draw_scrollbar(area, c.library_scroll, c.library_max_scroll);
+        }
+    };
+    BeginScissorMode(static_cast<int>(content.x), static_cast<int>(content.y),
+                     static_cast<int>(content.width), static_cast<int>(content.height));
+    const ScrollRegion region{mut, content, content_end};
+
     // Object list.
-    const float list_top = rect.y + 50.0f * scale;
+    const float list_top = content.y + 4.0f * scale - scroll;
     const float row_h = 22.0f * scale;
+    content_end = list_top + row_h * static_cast<float>(objs.size());
     for (std::size_t i = 0; i < objs.size(); ++i) {
         const UniverseObject &o = *objs[i];
         const Rectangle row = {rect.x + 10.0f * scale, list_top + row_h * i,
                                rect.width - 20.0f * scale, row_h - 4.0f * scale};
         const bool active = (static_cast<int>(i) == cosmos.selected_object);
-        const bool hot = CheckCollisionPointRec(GetMousePosition(), row);
+        const bool hot = over_content && CheckCollisionPointRec(GetMousePosition(), row);
         DrawRectangleRounded(row, 0.2f, 6,
                              active ? Color{12, 30, 50, 235}
                                     : (hot ? Color{9, 20, 36, 210} : Color{6, 13, 24, 170}));
@@ -240,15 +270,18 @@ void draw_inspector(const CosmosState &cosmos, Rectangle rect, float scale) {
                            to_raylib(o.color), {0, 0, 0, 0});
         draw_text(o.name, {row.x + 28.0f * scale, row.y + 4.0f * scale}, 14.0f * scale,
                   active ? WL::TEXT_PRIMARY : WL::TEXT_SECONDARY);
-        // Abundance bar.
-        const float bar_w = (rect.width - 38.0f * scale) * static_cast<float>(o.abundance);
-        DrawRectangleRounded({row.x + 28.0f * scale, row.y + row.height - 6.0f * scale,
-                              std::max(2.0f, bar_w), 2.5f * scale},
-                             0.5f, 4, with_alpha(WL::PLASMA_GREEN, 150));
-        if (clicked(row)) {
-            const_cast<CosmosState &>(cosmos).selected_object = static_cast<int>(i);
-        } else if (right_clicked(row)) {
-            const_cast<CosmosState &>(cosmos).compare_object = static_cast<int>(i);
+        // Abundance: a right-aligned mini meter (a bar under the label read
+        // as a strikethrough).
+        const Rectangle track = {row.x + row.width - 62.0f * scale,
+                                 row.y + row.height * 0.5f - 2.0f * scale, 52.0f * scale, 4.0f * scale};
+        DrawRectangleRounded(track, 0.5f, 4, Color{255, 255, 255, 14});
+        DrawRectangleRounded({track.x, track.y, std::max(2.0f, track.width * static_cast<float>(o.abundance)),
+                              track.height},
+                             0.5f, 4, with_alpha(WL::PLASMA_GREEN, 170));
+        if (over_content && clicked(row)) {
+            mut.selected_object = static_cast<int>(i);
+        } else if (over_content && right_clicked(row)) {
+            mut.compare_object = static_cast<int>(i);
         }
     }
 
@@ -471,9 +504,11 @@ void draw_inspector(const CosmosState &cosmos, Rectangle rect, float scale) {
         draw_text(line1, {rect.x + 14.0f * scale, y}, 12.5f * scale, WL::TEXT_SECONDARY);
         draw_text(line2, {rect.x + 14.0f * scale, y + 16.0f * scale}, 12.5f * scale,
                   WL::TEXT_SECONDARY);
+        content_end = y + 40.0f * scale;
     } else {
         draw_text("right-click an object to compare", {rect.x + 14.0f * scale, y}, 11.5f * scale,
                   with_alpha(WL::TEXT_TERTIARY, 180));
+        content_end = y + 24.0f * scale;
     }
 }
 
