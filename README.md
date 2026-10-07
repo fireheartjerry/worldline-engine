@@ -314,13 +314,29 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The current automated coverage includes:
+64 verification programs cover, among other things:
 
-- seed determinism verification
-- generated physics verification
-- metaspec verification
-- app-layer persistence and atlas query verification
-- corrupt save-file recovery (malformed projects and settings)
+- seed determinism, the generated physics, and metaspec corpus statistics
+- every cosmos suite (quantum, nuclear, atomic, astrobiology, ecology, the
+  N-body sandbox and its bit-exact acceleration cache, `ProcUniverse` LRU
+  eviction and identical regeneration, `SpatialHash` against brute force)
+- app-layer persistence: round-trips with hostile input (escaping, `\r`,
+  path-traversal ids, copied/renamed project files, subnormal numbers,
+  unusable data directories) and corrupt save-file recovery
+- an ecosystem stress test over hundreds of extreme biomes and hostile time
+  steps
+
+### Sanitizers and static analysis
+
+```bash
+cmake --preset asan          # AddressSanitizer + UndefinedBehaviorSanitizer
+cmake --build --preset asan
+ctest --preset asan
+```
+
+The `WORLDLINE_SANITIZE` option instruments only Worldline's own targets
+(raylib is left alone). A `.clang-tidy` with the engine's bug-finding check set
+is included; run it with `clang-tidy -p build <files>`.
 
 ## Data location
 
@@ -368,7 +384,9 @@ Render universe "postcards" to a BMP without opening a window:
 
 - `.clang-format` for consistent formatting
 - `CMakePresets.json` for repeatable local configure flows
-- GitHub Actions CI: build + full test suite on Windows (MSVC) and Linux (GCC)
+- `.clang-tidy` with bug-finding checks, and an `asan` preset (ASan + UBSan)
+- GitHub Actions CI: build + full test suite on Windows (MSVC) and Linux
+  (GCC), plus the full suite under ASan + UBSan on Linux
 
 ## License
 

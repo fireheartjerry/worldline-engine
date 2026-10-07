@@ -12,7 +12,8 @@ on:
 jobs:
   # Windows (MSVC) is the reference platform: it also produces the release
   # package. Linux (GCC) builds and runs the same full suite so regressions on a
-  # second compiler/STL are caught too. macOS is not CI-gated.
+  # second compiler/STL are caught too, and again under ASan + UBSan to catch
+  # memory and undefined-behaviour bugs. macOS is not CI-gated.
   windows:
     name: Windows (MSVC)
     runs-on: windows-latest
@@ -56,3 +57,25 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
+
+  linux-asan:
+    name: Linux (GCC, ASan + UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install raylib build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev libxinerama-dev libxkbcommon-dev
+
+      - name: Configure
+        run: cmake --preset asan
+
+      - name: Build
+        run: cmake --build --preset asan -j"$(nproc)"
+
+      - name: Run tests under sanitizers
+        run: ctest --preset asan -j"$(nproc)"

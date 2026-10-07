@@ -94,7 +94,8 @@ The same seed must produce the same universe. Rules that keep it true:
 `seed_verification`, `metaspec_verification` and the `cosmos_*` suites pin
 this behaviour. The seed → genome path still calls the platform libm, so
 bit-exact results are only guaranteed per toolchain; Windows/MSVC is the
-reference platform and CI also runs the full suite on Linux/GCC.
+reference platform; CI also runs the full suite on Linux/GCC, natively and
+under ASan + UBSan (`cmake --preset asan`).
 
 ## UI conventions
 
@@ -115,7 +116,10 @@ reference platform and CI also runs the full suite on Linux/GCC.
 
 Each suite is its own executable in `tests/`, registered in `CMakeLists.txt`
 with `add_executable` / `target_link_libraries` / `worldline_apply_warnings` /
-`add_test`. Run everything with `ctest --test-dir build --output-on-failure`.
+`add_test`. Run everything with `ctest --test-dir build --output-on-failure`,
+or under sanitizers with `cmake --preset asan && cmake --build --preset asan &&
+ctest --preset asan`. Engine changes that must not alter generated output
+should be checked bit-for-bit (print exact hex floats before and after).
 
 ## Verifying UI changes headlessly
 
