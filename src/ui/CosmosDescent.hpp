@@ -8,6 +8,8 @@
 
 #include "raylib.h"
 
+#include <algorithm>
+
 class Renderer;
 
 namespace cosmos_ui {
@@ -20,6 +22,14 @@ void descent_ensure_init(CosmosState& cosmos);
 // modal is open so navigation never fights an overlay.
 void update_descent(CosmosState& cosmos, Rectangle stage, float dt, bool interactive,
                     float ui_scale = 1.0f);
+
+// Tier analysis deck (CosmosDescentDeck.cpp): a strip of scientific instruments
+// along the bottom of the stage. The map lays out above it when it is open.
+constexpr float kDescentDeckGap = 8.0f;
+inline float descent_deck_height(Rectangle stage, float ui) {
+    return std::min(176.0f * ui, stage.height * 0.34f);
+}
+void draw_descent_analysis(CosmosState& cosmos, Rectangle stage, float ui_scale);
 
 // Rendering.
 void draw_descent_stage(CosmosState& cosmos, Renderer& renderer, Rectangle stage, float ui_scale);

@@ -78,6 +78,7 @@ add_executable(worldline
     src/ui/CosmosExplorerScene.cpp
     src/ui/CosmosExplorerPanels.cpp
     src/ui/CosmosDescent.cpp
+    src/ui/CosmosDescentDeck.cpp
     src/ui/GuidedFirstUniverseScene.cpp
     src/ui/SeedWorkspaceScene.cpp
     src/ui/SeedWorkspacePanels.cpp
