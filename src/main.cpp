@@ -20,8 +20,15 @@
 
 int main() {
     PersistentAppSettings boot_settings = Storage::load_settings();
+    // Every screen's layout is verified down to this size; below it panels
+    // start to collide, so the window may not shrink further.
+    constexpr int kMinWindowWidth = 1100;
+    constexpr int kMinWindowHeight = 660;
+    boot_settings.window_width = std::max(boot_settings.window_width, kMinWindowWidth);
+    boot_settings.window_height = std::max(boot_settings.window_height, kMinWindowHeight);
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
     InitWindow(boot_settings.window_width, boot_settings.window_height, Copy::kAppTitle);
+    SetWindowMinSize(kMinWindowWidth, kMinWindowHeight);
     // Escape is the app's "back / close" key on every screen and modal; raylib's
     // default would also quit the whole app on that same press.
     SetExitKey(KEY_NULL);

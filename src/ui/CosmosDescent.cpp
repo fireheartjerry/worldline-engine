@@ -1472,13 +1472,19 @@ void draw_descent_hud(const CosmosState& cosmos, Rectangle stage, float ui) {
     // Two-line control legend: camera on top, the full keyboard shell below —
     // every shortcut the shell honours is discoverable on screen.
     const float hy = stage_content_bottom(d, stage, ui) - 32.0f * ui;
-    draw_text(node_is_leaf(f.kind)
-                  ? "scroll out: ascend   |   drag / WASD: pan   |   C: recenter"
-                  : "scroll in / click / Enter: enter   |   scroll out: ascend   |   drag / WASD: pan   |   C: recenter",
-              {stage.x + 12.0f * ui, hy}, 10.5f * ui, with_alpha(WL::TEXT_TERTIARY, 200));
-    draw_text("arrows: aim   |   Tab: cycle   |   1-9: jump   |   H: notable   |   [ ]: siblings   |   backspace: up   |   Home: root   |   G: deck",
-              {stage.x + 12.0f * ui, hy + 14.0f * ui}, 9.5f * ui,
-              with_alpha(WL::TEXT_TERTIARY, 150));
+    // Each line shrinks (to a legible floor) rather than overrunning a narrow stage.
+    const float avail = stage.width - 24.0f * ui;
+    auto fit_line = [&](const char* text, float y, float size, unsigned char alpha) {
+        const float w = measure_ui_text(text, size).x;
+        const float fitted = w > avail ? std::max(8.0f, size * avail / w) : size;
+        draw_text(text, {stage.x + 12.0f * ui, y}, fitted, with_alpha(WL::TEXT_TERTIARY, alpha));
+    };
+    fit_line(node_is_leaf(f.kind)
+                 ? "scroll out: ascend   |   drag / WASD: pan   |   C: recenter"
+                 : "scroll in / click / Enter: enter   |   scroll out: ascend   |   drag / WASD: pan   |   C: recenter",
+             hy, 10.5f * ui, 200);
+    fit_line("arrows: aim   |   Tab: cycle   |   1-9: jump   |   H: notable   |   [ ]: siblings   |   backspace: up   |   Home: root   |   G: deck",
+             hy + 14.0f * ui, 9.5f * ui, 150);
 }
 
 } // namespace cosmos_ui
