@@ -108,10 +108,16 @@ public:
     // and an evicted node regenerates identically. `parent` supplies inter-level
     // context (e.g. a planet needs its star's luminosity + its own orbit); it is
     // deterministic given the child seed, so caching by seed stays valid.
+    //
+    // Lifetime: the returned reference points into the cache and is only valid
+    // until the next node()/root()/set_budget()/reseed() call, any of which may
+    // evict it. Copy the node (or re-fetch it) to keep it across calls. `parent`
+    // itself may be a cache reference: it is fully consumed before eviction.
     const ProcNode& node(std::uint64_t seed, NodeKind kind, const ProcNode* parent = nullptr);
     const ProcNode& root() { return node(root_seed_, NodeKind::Universe); }
 
     std::size_t cache_size() const { return cache_.size(); }
+    bool is_cached(std::uint64_t seed) const { return cache_.count(seed) != 0; }
     std::size_t budget() const { return budget_; }
     void set_budget(std::size_t n) { budget_ = (n < 1) ? 1 : n; trim(); }
 
