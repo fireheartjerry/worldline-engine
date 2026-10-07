@@ -153,6 +153,12 @@ target_link_libraries(worldline_metaspec_tests PRIVATE worldline_seed)
 worldline_apply_warnings(worldline_metaspec_tests)
 add_test(NAME metaspec_verification COMMAND worldline_metaspec_tests)
 
+add_executable(worldline_seed_math_tests tests/seed_math_verification.cpp)
+target_include_directories(worldline_seed_math_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(worldline_seed_math_tests PRIVATE worldline_seed)
+worldline_apply_warnings(worldline_seed_math_tests)
+add_test(NAME seed_math_verification COMMAND worldline_seed_math_tests)
+
 add_executable(worldline_app_tests tests/app_verification.cpp)
 target_include_directories(worldline_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(worldline_app_tests PRIVATE worldline_app)

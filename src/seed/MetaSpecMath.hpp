@@ -1,6 +1,9 @@
 #pragma once
 // MetaSpec — 2D linear-algebra and spectral toolkit used by the generator
 // (vectors, 2x2 matrices, spectral/eigen analysis, matrix load/store).
+// Header-only: every function is `inline`, so including this from more than
+// one translation unit (e.g. a test) does not violate the ODR.
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -36,20 +39,20 @@ struct SymmetricAnalysis {
     double anisotropy = 0.0;
 };
 
-double clamp01(double value) {
+inline double clamp01(double value) {
     return std::clamp(value, 0.0, 1.0);
 }
 
-double lerp(double a, double b, double u) {
+inline double lerp(double a, double b, double u) {
     return a + (b - a) * u;
 }
 
-double smoothstep(double x) {
+inline double smoothstep(double x) {
     const double t = clamp01(x);
     return t * t * (3.0 - 2.0 * t);
 }
 
-Mat2 multiply(const Mat2& lhs, const Mat2& rhs) {
+inline Mat2 multiply(const Mat2& lhs, const Mat2& rhs) {
     return {
         lhs.xx * rhs.xx + lhs.xy * rhs.yx,
         lhs.xx * rhs.xy + lhs.xy * rhs.yy,
@@ -58,7 +61,7 @@ Mat2 multiply(const Mat2& lhs, const Mat2& rhs) {
     };
 }
 
-Mat2 scale(const Mat2& matrix, double factor) {
+inline Mat2 scale(const Mat2& matrix, double factor) {
     return {
         matrix.xx * factor,
         matrix.xy * factor,
@@ -67,7 +70,7 @@ Mat2 scale(const Mat2& matrix, double factor) {
     };
 }
 
-double frob(const Mat2& matrix) {
+inline double frob(const Mat2& matrix) {
     return std::sqrt(
         matrix.xx * matrix.xx +
         matrix.xy * matrix.xy +
@@ -75,48 +78,48 @@ double frob(const Mat2& matrix) {
         matrix.yy * matrix.yy);
 }
 
-double comm_scalar(const Mat2& lhs, const Mat2& rhs) {
+inline double comm_scalar(const Mat2& lhs, const Mat2& rhs) {
     const Mat2 ab = multiply(lhs, rhs);
     const Mat2 ba = multiply(rhs, lhs);
     return ab.xy - ba.xy;
 }
 
-double normalized_commutator(const Mat2& lhs, const Mat2& rhs) {
+inline double normalized_commutator(const Mat2& lhs, const Mat2& rhs) {
     return comm_scalar(lhs, rhs) / (1.0 + frob(lhs) + frob(rhs));
 }
 
-Vec2d add(Vec2d lhs, Vec2d rhs) {
+inline Vec2d add(Vec2d lhs, Vec2d rhs) {
     return {lhs.x + rhs.x, lhs.y + rhs.y};
 }
 
-Vec2d scale(Vec2d value, double factor) {
+inline Vec2d scale(Vec2d value, double factor) {
     return {value.x * factor, value.y * factor};
 }
 
-double dot(Vec2d lhs, Vec2d rhs) {
+inline double dot(Vec2d lhs, Vec2d rhs) {
     return lhs.x * rhs.x + lhs.y * rhs.y;
 }
 
-double length(Vec2d value) {
+inline double length(Vec2d value) {
     return std::sqrt(dot(value, value));
 }
 
-Vec2d mul(const Mat2& matrix, Vec2d value) {
+inline Vec2d mul(const Mat2& matrix, Vec2d value) {
     return {
         matrix.xx * value.x + matrix.xy * value.y,
         matrix.yx * value.x + matrix.yy * value.y
     };
 }
 
-Vec2d axis_from_theta(double theta) {
+inline Vec2d axis_from_theta(double theta) {
     return {std::cos(theta), std::sin(theta)};
 }
 
-Vec2d orthogonal(Vec2d value) {
+inline Vec2d orthogonal(Vec2d value) {
     return {-value.y, value.x};
 }
 
-Mat2 make_spectral_matrix(double lambda0, double lambda1, double theta) {
+inline Mat2 make_spectral_matrix(double lambda0, double lambda1, double theta) {
     const double c = std::cos(theta);
     const double s = std::sin(theta);
     const double cc = c * c;
@@ -130,7 +133,7 @@ Mat2 make_spectral_matrix(double lambda0, double lambda1, double theta) {
     };
 }
 
-Spectral2 make_spectral(double u0,
+inline Spectral2 make_spectral(double u0,
                         double u1,
                         double u2,
                         double min_eigenvalue,
@@ -146,7 +149,7 @@ Spectral2 make_spectral(double u0,
     return spectral;
 }
 
-Spectral2 make_spectral_from_values(double lambda0,
+inline Spectral2 make_spectral_from_values(double lambda0,
                                     double lambda1,
                                     double theta) {
     Spectral2 spectral;
@@ -157,12 +160,12 @@ Spectral2 make_spectral_from_values(double lambda0,
     return spectral;
 }
 
-double spectral_anisotropy(double lambda0, double lambda1) {
+inline double spectral_anisotropy(double lambda0, double lambda1) {
     return std::abs(lambda0 - lambda1)
         / (std::abs(lambda0) + std::abs(lambda1) + kNormEpsilon);
 }
 
-SymmetricAnalysis analyze_symmetric(const double matrix[2][2]) {
+inline SymmetricAnalysis analyze_symmetric(const double matrix[2][2]) {
     const double a = matrix[0][0];
     const double b = 0.5 * (matrix[0][1] + matrix[1][0]);
     const double d = matrix[1][1];
@@ -177,14 +180,14 @@ SymmetricAnalysis analyze_symmetric(const double matrix[2][2]) {
     return result;
 }
 
-void store_matrix(const Mat2& matrix, double target[2][2]) {
+inline void store_matrix(const Mat2& matrix, double target[2][2]) {
     target[0][0] = matrix.xx;
     target[0][1] = matrix.xy;
     target[1][0] = matrix.yx;
     target[1][1] = matrix.yy;
 }
 
-Mat2 load_matrix(const double source[2][2]) {
+inline Mat2 load_matrix(const double source[2][2]) {
     return {
         source[0][0],
         source[0][1],
